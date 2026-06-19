@@ -172,11 +172,18 @@ die Masken sitzen; sonst Koordinaten in der `.cards.json` anpassen und neu rende
 
 ## Qualitätsregeln für gute Karten
 
-- **Atomar:** eine Tatsache pro Karte. Lieber zwei kleine Karten als eine überladene.
-- **Eindeutig beantwortbar:** keine schwammigen Fragen, keine Ja/Nein-Trivialitäten.
-- **Cloze** für Definitionen, Aufzählungen, Formeln, Zahlenwerte; **Basic** für
-  Konzept- und „Warum/Wie"-Fragen.
-- **Sprache = Sprache der Quelle** (meist Deutsch).
-- **Keine Halluzinationen:** nur, was im Quelltext steht. Bei Unsicherheit weglassen.
-- **Tags** pro Karte mit Thema/Kapitel, damit der Nutzer filtern kann.
-- Sinnvolle Menge: nicht jeden Satz verkarten — nur das Prüfungs-/Lernrelevante.
+**Vor dem Erstellen von Karten den Skill `kartenbau` befolgen**
+(`.claude/skills/kartenbau/SKILL.md`) — die evidenzbasierte Methodik samt Checkliste.
+Belege/Quellen: `.claude/skills/kartenbau/research.md`.
+
+Kernregeln (Kurzfassung, Details im Skill):
+- **Atomar:** eine abrufbare Tatsache pro Karte. Lange Antwort → aufteilen.
+- **Echter Abruf:** eindeutiger, distinkter Cue; produzierbare Antwort; kein Ja/Nein,
+  kein ganzer Satz, kein Hint-Leak; ~90 % lösbar, aber fordernd.
+- **Format nach Wissenstyp:** Basic = Default; Cloze für eingebettete Fakten;
+  Occlusion nur räumlich-visuell; typein nur exakte Schreibung; reverse nur echte
+  Zwei-Wege-Nutzung.
+- **Vertiefung/Quelle** in `explanation`/`source` (zugeklappte Box), **nicht** in den
+  Abruf.
+- **Grounding:** nur was im Quelltext steht (keine Halluzination); bei Unsicherheit
+  Quelle nennen statt raten. **Tags** pro Karte. Nur Lernrelevantes verkarten.
