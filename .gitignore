@@ -1,0 +1,15 @@
+# Generierte Anki-Pakete (reproduzierbar aus den .cards.json)
+decks/*.apkg
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+
+# Hinweis: Quelldateien in quellen/ werden mitversioniert.
+# Falls deine Bücher/PDFs groß oder urheberrechtlich geschützt sind,
+# hier z. B. ergänzen:  quellen/*  und  !quellen/.gitkeep

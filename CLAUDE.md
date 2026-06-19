@@ -1,0 +1,109 @@
+# Anki-Karten — Projekt-Anleitung (für Claude)
+
+Dieses Projekt erzeugt **Anki-Karteikarten aus Quelldateien**.
+**Claude (ich) bin die KI**, die die Karten inhaltlich erstellt — es gibt **keinen**
+externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
+„Karten-JSON → `.apkg`" über die Lib `genanki`.
+
+## Ordner
+
+| Ordner | Zweck |
+|---|---|
+| `quellen/` | Der Nutzer legt hier PDFs / Texte / Markdown rein. |
+| `decks/` | Hier landen die generierten `.cards.json` **und** die fertigen `.apkg`. |
+| `tools/` | `build_deck.py` (JSON→apkg) und `build.sh` (Docker-Wrapper). |
+| `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
+| `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
+
+## Workflow, wenn der Nutzer Karten will
+
+1. Quelldatei liegt in `quellen/` (z. B. `quellen/skript.pdf`).
+2. **Lies** die Datei mit dem Read-Tool (PDFs kann das Read-Tool direkt lesen).
+3. **Erstelle** die Karten und schreibe sie als JSON nach `decks/<name>.cards.json`
+   (Format unten).
+4. **Baue** das Paket:
+   ```bash
+   ./tools/build.sh decks/<name>.cards.json
+   ```
+   → erzeugt `decks/<name>.apkg`. (Image fehlt? `docker build -t anki-karten .`)
+5. Sag dem Nutzer, dass `decks/<name>.apkg` fertig ist
+   → in Anki per **Datei → Importieren** oder Doppelklick laden.
+
+## Karten-JSON-Format
+
+```json
+{
+  "deck": "Biologie::Kapitel 3 - Zellatmung",
+  "cards": [
+    {
+      "type": "basic",
+      "front": "Wo in der Zelle findet die Zellatmung statt?",
+      "back": "In den Mitochondrien.",
+      "tags": ["bio", "zellatmung"]
+    },
+    {
+      "type": "cloze",
+      "text": "Die Glykolyse läuft im {{c1::Zytoplasma}} ab und liefert netto {{c2::2 ATP}}.",
+      "extra": "Vorstufe der Zellatmung, sauerstoffunabhängig.",
+      "tags": ["bio", "zellatmung"]
+    }
+  ]
+}
+```
+
+- `deck`: Deckname. `::` erzeugt Unterdecks in Anki.
+- `type`: `"basic"` (Front/Back), `"cloze"` (Lückentext mit `{{c1::...}}`)
+  oder `"occlusion"` (Bild mit verdeckten Bereichen, siehe unten).
+- `extra` (cloze/occlusion) und `tags` sind optional.
+
+## Image Occlusion ("Bild mit verdeckten Bereichen")
+
+Eigener, selbst-gerenderter Kartentyp (HTML/CSS-Overlay über dem Bild — läuft in
+jeder Anki-Version, unabhängig von Ankis internem IO-Format). Pro Bereich (`region`)
+wird **eine Karte** erzeugt.
+
+```json
+{
+  "type": "occlusion",
+  "image": "quellen/herz.png",
+  "mode": "hide-one",
+  "header": "Beschrifte das Herz",
+  "extra": "<i>Aus: Anatomie-Skript S. 12</i>",
+  "regions": [
+    {"label": "Aorta",            "x": 0.30, "y": 0.10, "w": 0.12, "h": 0.06},
+    {"label": "linke Herzkammer", "x": 0.55, "y": 0.60, "w": 0.18, "h": 0.10}
+  ],
+  "tags": ["anatomie", "herz"]
+}
+```
+
+- `image`: Pfad **relativ zum Projekt-Root** (z. B. `quellen/herz.png`). Das Bild
+  wird automatisch ins `.apkg` eingebettet.
+- `mode`: `"hide-one"` (nur der gesuchte Bereich ist verdeckt, Rest sichtbar) oder
+  `"hide-all"` (alle verdeckt, beim Aufdecken wird nur der gesuchte gezeigt).
+- `regions`: Liste der Bereiche. **Koordinaten als Bruchteil 0..1** (relativ zur
+  Bildgröße): `x`/`y` = obere linke Ecke, `w`/`h` = Breite/Höhe. `label` = die
+  Antwort, die auf der Rückseite erscheint.
+
+### So platziere ich (Claude) die Bereiche
+1. Bild mit dem **Read-Tool ansehen** (es wird mir visuell angezeigt).
+2. Für jede zu verdeckende Beschriftung die Box als Bruchteile schätzen
+   (0,0 = oben links, 1,1 = unten rechts).
+3. Dem Nutzer sagen, dass die Boxen per Auge geschätzt sind und ggf. leicht
+   nachjustiert werden müssen — Werte in der `.cards.json` sind leicht änderbar,
+   danach neu bauen.
+
+> Hinweis: Punktgenaues Platzieren per Auge ist begrenzt. Für hohe Präzision
+> könnte man später OCR (Texterkennung) in den Container einbauen, um Label-Boxen
+> automatisch zu erkennen. (Noch nicht implementiert.)
+
+## Qualitätsregeln für gute Karten
+
+- **Atomar:** eine Tatsache pro Karte. Lieber zwei kleine Karten als eine überladene.
+- **Eindeutig beantwortbar:** keine schwammigen Fragen, keine Ja/Nein-Trivialitäten.
+- **Cloze** für Definitionen, Aufzählungen, Formeln, Zahlenwerte; **Basic** für
+  Konzept- und „Warum/Wie"-Fragen.
+- **Sprache = Sprache der Quelle** (meist Deutsch).
+- **Keine Halluzinationen:** nur, was im Quelltext steht. Bei Unsicherheit weglassen.
+- **Tags** pro Karte mit Thema/Kapitel, damit der Nutzer filtern kann.
+- Sinnvolle Menge: nicht jeden Satz verkarten — nur das Prüfungs-/Lernrelevante.
