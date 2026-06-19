@@ -23,3 +23,7 @@ Thumbs.db
 #   git add -f quellen/dateiname.pdf
 quellen/*
 !quellen/.gitkeep
+
+# Aus den (persönlichen) Quellen abgeleitete Markdown-Extrakte (reproduzierbar
+# via tools/extract.sh) NICHT versionieren.
+aufbereitet/
