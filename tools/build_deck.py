@@ -59,11 +59,9 @@ ul, ol { text-align: left; display: inline-block; }
   position: absolute; box-sizing: border-box;
   border: 2px solid #e53935; background: rgba(229,57,53,.08);
 }
-.io-label {
-  position: absolute; box-sizing: border-box; padding: 2px;
-  display: flex; align-items: center; justify-content: center;
-  color: #c62828; font-weight: bold; font-size: .8em; text-align: center;
-  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+.io-answer-label {
+  margin-top: .6em; text-align: center;
+  color: #c62828; font-weight: bold; font-size: 1.05em;
 }
 """
 
@@ -118,6 +116,19 @@ def _pct(value: float) -> str:
     return f"{float(value) * 100:.4f}%"
 
 
+# Etwas Luft um jede Box, damit Maske/Umrandung den (oft kleinen) Text nicht
+# hauteng einklemmen -> deutlich besser erkenn- und lesbar.
+_BOX_PAD = 0.01
+
+
+def _box_style(r):
+    x = max(0.0, r["x"] - _BOX_PAD)
+    y = max(0.0, r["y"] - _BOX_PAD)
+    w = min(1.0 - x, r["w"] + 2 * _BOX_PAD)
+    h = min(1.0 - y, r["h"] + 2 * _BOX_PAD)
+    return f"left:{_pct(x)};top:{_pct(y)};width:{_pct(w)};height:{_pct(h)}"
+
+
 def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
     """Rendert eine Seite einer Occlusion-Karte.
 
@@ -132,10 +143,7 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
     parts.append(f'<img src="{html.escape(img_src, quote=True)}">')
 
     for i, r in enumerate(regions):
-        pos = (
-            f'left:{_pct(r["x"])};top:{_pct(r["y"])};'
-            f'width:{_pct(r["w"])};height:{_pct(r["h"])}'
-        )
+        pos = _box_style(r)
         if not reveal:  # Vorderseite
             masked = True if mode == "hide-all" else (i == target)
         else:  # Rueckseite
@@ -144,16 +152,17 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
         if masked:
             parts.append(f'<div class="io-mask" style="{pos}"></div>')
         elif reveal and i == target:
+            # Nur umranden – KEIN Text ueber dem Bild (sonst Ueberlagerung mit der
+            # Beschriftung, die schon im Bild steht). Antwort kommt als Unterschrift.
             parts.append(f'<div class="io-answer" style="{pos}"></div>')
-            label = r.get("label", "")
-            if label:
-                parts.append(
-                    f'<div class="io-label" style="{pos}">{html.escape(label)}</div>'
-                )
 
     parts.append("</div>")
-    if reveal and extra:
-        parts.append(f'<div class="io-extra">{extra}</div>')
+    if reveal:
+        answer = regions[target].get("label", "")
+        if answer:
+            parts.append(f'<div class="io-answer-label">{html.escape(answer)}</div>')
+        if extra:
+            parts.append(f'<div class="io-extra">{extra}</div>')
     return "".join(parts)
 
 

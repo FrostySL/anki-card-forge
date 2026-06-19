@@ -1,15 +1,23 @@
-# Separates, groesseres Image nur fuer die Karten-Vorschau (headless Chromium).
-# Bewusst getrennt vom schlanken Builder-Image (anki-karten), das fuer das
-# .apkg-Bauen genuegt.
+# Image fuer Karten-Vorschau (headless Chromium) UND OCR-Label-Erkennung
+# (Tesseract). Bewusst getrennt vom schlanken Builder-Image (anki-karten).
 FROM python:3.12-slim
 
 # Browser an einen fuer alle lesbaren Pfad; HOME schreibbar fuer den Nicht-Root-User.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     HOME=/tmp
 
-RUN pip install --no-cache-dir "genanki==0.13.1" "playwright" \
+# 1) Chromium (eigene Layer -> bleibt bei spaeteren Aenderungen gecacht)
+RUN pip install --no-cache-dir "playwright" \
  && python -m playwright install --with-deps chromium \
  && chmod -R a+rX /ms-playwright
+
+# 2) Python-Libs fuer Bauen, Rendern und OCR
+RUN pip install --no-cache-dir "genanki==0.13.1" "pytesseract" "Pillow"
+
+# 3) Tesseract OCR (deutsch + englisch) fuer die Label-Erkennung
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
 ENTRYPOINT ["python", "/work/tools/preview.py"]

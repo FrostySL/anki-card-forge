@@ -11,7 +11,7 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 |---|---|
 | `quellen/` | Der Nutzer legt hier PDFs / Texte / Markdown rein. |
 | `decks/` | Hier landen die generierten `.cards.json` **und** die fertigen `.apkg`. |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `lint_cards.py` (Inhalts-Check). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check). |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
 
@@ -111,16 +111,23 @@ wird **eine Karte** erzeugt.
   Antwort, die auf der Rückseite erscheint.
 
 ### So platziere ich (Claude) die Bereiche
-1. Bild mit dem **Read-Tool ansehen** (es wird mir visuell angezeigt).
-2. Für jede zu verdeckende Beschriftung die Box als Bruchteile schätzen
-   (0,0 = oben links, 1,1 = unten rechts).
-3. Dem Nutzer sagen, dass die Boxen per Auge geschätzt sind und ggf. leicht
-   nachjustiert werden müssen — Werte in der `.cards.json` sind leicht änderbar,
-   danach neu bauen.
 
-> Hinweis: Punktgenaues Platzieren per Auge ist begrenzt. Für hohe Präzision
-> könnte man später OCR (Texterkennung) in den Container einbauen, um Label-Boxen
-> automatisch zu erkennen. (Noch nicht implementiert.)
+**Bevorzugt: OCR (pixelgenau).** Bei Bildern mit Textbeschriftungen zuerst die
+exakten Boxen erkennen lassen:
+```bash
+./tools/detect.sh quellen/bild.png        # optional: --lang deu+eng --min-conf 45
+```
+→ erzeugt `quellen/bild.labels.json` (erkannte Labels mit Bruchteil-Koordinaten)
+und `quellen/bild.labels.png` (Bild mit nummerierten Boxen). Das annotierte PNG mit
+dem Read-Tool ansehen, die relevanten Labels auswählen und ihre `x/y/w/h` **1:1** in
+die occlusion-`regions` übernehmen (mehrzeilige Labels ggf. zu einer Box vereinen).
+
+**Fallback: per Auge.** Wenn OCR ein Label nicht findet (gedrehter/stilisierter Text,
+niedriger Kontrast): Bild mit dem Read-Tool ansehen, Box als Bruchteile (0,0 = oben
+links, 1,1 = unten rechts) schätzen.
+
+**Immer danach:** mit `./tools/preview.sh` rendern, das PNG ansehen und prüfen, ob
+die Masken sitzen; sonst Koordinaten in der `.cards.json` anpassen und neu rendern.
 
 ## Qualitätsregeln für gute Karten
 

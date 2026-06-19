@@ -50,6 +50,7 @@ decks/                   erzeugte .cards.json + .apkg
 tools/build_deck.py      JSON → .apkg (genanki)
 tools/build.sh           Docker-Wrapper
 tools/preview.py/.sh     Karten → PNG-Vorschau (headless Chromium, Feedbackloop)
+tools/detect_labels.py   OCR (Tesseract): Label-Boxen für Image Occlusion erkennen
 tools/lint_cards.py      schnelle Inhalts-/Struktur-Prüfung
 reference/anki-manual/   offizielles Anki-Handbuch (Nachschlagewerk)
 reference/anki/          Anki-Quellcode (shallow clone, Nachschlagewerk)
