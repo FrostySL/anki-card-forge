@@ -11,7 +11,7 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 |---|---|
 | `quellen/` | Der Nutzer legt hier PDFs / Texte / Markdown rein. |
 | `decks/` | Hier landen die generierten `.cards.json` **und** die fertigen `.apkg`. |
-| `tools/` | `build_deck.py` (JSON→apkg) und `build.sh` (Docker-Wrapper). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `lint_cards.py` (Inhalts-Check). |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
 
@@ -28,6 +28,31 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
    → erzeugt `decks/<name>.apkg`. (Image fehlt? `docker build -t anki-karten .`)
 5. Sag dem Nutzer, dass `decks/<name>.apkg` fertig ist
    → in Anki per **Datei → Importieren** oder Doppelklick laden.
+
+## Feedbackloop: Karten vor dem Export selbst prüfen
+
+Bevor du eine `.apkg` als „fertig" meldest — besonders bei **Image-Occlusion**, wo
+die Boxen per Auge platziert sind — prüfe das Ergebnis:
+
+1. **Inhalt schnell linten** (reines Python, kein Docker nötig):
+   ```bash
+   python3 tools/lint_cards.py decks/<name>.cards.json
+   ```
+   Meldet leere Felder, fehlende Lücken, Occlusion-Koordinaten außerhalb 0..1,
+   doppelte Fragen usw.
+2. **Darstellung rendern** (headless Chromium, gleiches HTML wie im .apkg):
+   ```bash
+   ./tools/preview.sh decks/<name>.cards.json
+   ```
+   → `decks/preview/<name>/NN-<typ>-front.png` + `-back.png` (+ `index.html`).
+3. **PNGs mit dem Read-Tool ansehen.** Prüfe: Decken die Occlusion-Masken die
+   richtigen Stellen? Zeigt die Rückseite das richtige Label? Layout ok?
+4. Sitzt etwas daneben → Koordinaten/Texte in `decks/<name>.cards.json` anpassen,
+   dann erneut **preview** (und am Ende **build**). Schleife, bis es passt.
+
+> Das Vorschau-Image (`anki-karten-preview`) ist groß (Chromium) und wird beim
+> ersten `preview.sh`-Aufruf automatisch gebaut. Das schlanke Builder-Image bleibt
+> davon unberührt.
 
 ## Karten-JSON-Format
 

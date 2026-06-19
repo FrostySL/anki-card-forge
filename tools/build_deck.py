@@ -14,6 +14,7 @@ import hashlib
 import html
 import json
 import os
+import re
 import sys
 
 import genanki
@@ -156,20 +157,81 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
     return "".join(parts)
 
 
+# --- Render-Helfer: erzeugen das fertige Vorder-/Rueckseiten-HTML einer Karte. ---
+# Occlusion teilt sich dieses HTML 1:1 mit dem .apkg (Template ist nur {{Front}}/
+# {{Back}}). Fuer basic/cloze speichert genanki dagegen ROHE Felder und wendet das
+# Template selbst an; render_basic/render_cloze spiegeln dieses Template, damit die
+# Vorschau (tools/preview.py) genauso aussieht wie die Anki-Karte. Aenderungen an den
+# Model-Templates oben muessen hier mitgezogen werden.
+
+
+def render_basic(card):
+    """(front, back) — spiegelt das afmt von BASIC_MODEL."""
+    front = card["front"]
+    back = f'{card["front"]}<hr id="answer">{card["back"]}'
+    return front, back
+
+
+_CLOZE_RE = re.compile(r"\{\{c(\d+)::(.+?)\}\}", re.DOTALL)
+
+
+def _cloze_numbers(text):
+    return sorted({int(m.group(1)) for m in _CLOZE_RE.finditer(text)})
+
+
+def _render_cloze_side(text, active, reveal):
+    def repl(m):
+        num = int(m.group(1))
+        content = m.group(2)
+        answer, hint = (content.split("::", 1) + [""])[:2]
+        if num == active:
+            if reveal:
+                return f'<span class="cloze">{answer}</span>'
+            return f'<span class="cloze">[{hint or "..."}]</span>'
+        return answer  # nicht-aktive Cloze: Inhalt normal zeigen
+
+    return _CLOZE_RE.sub(repl, text)
+
+
+def render_cloze(card):
+    """Liste von (front, back) — eine pro cN, spiegelt Ankis Cloze-Verhalten."""
+    text = card["text"]
+    extra = card.get("extra", "")
+    out = []
+    for num in _cloze_numbers(text):
+        front = _render_cloze_side(text, num, reveal=False)
+        back = _render_cloze_side(text, num, reveal=True)
+        if extra:
+            back = f"{back}<br>{extra}"
+        out.append((front, back))
+    return out
+
+
+def render_occlusion(card, img_src):
+    """Liste von (front, back) — eine pro Bereich. img_src = Bildquelle (Dateiname
+    fuers .apkg oder data:-URI fuer die self-contained Vorschau)."""
+    regions = card["regions"]
+    mode = card.get("mode", "hide-one")
+    header = card.get("header", "")
+    extra = card.get("extra", "")
+    out = []
+    for target in range(len(regions)):
+        front = _occlusion_html(img_src, regions, target, mode, False, header, extra)
+        back = _occlusion_html(img_src, regions, target, mode, True, header, extra)
+        out.append((front, back))
+    return out
+
+
 def _add_occlusion_notes(deck, card, media):
     """Erzeugt pro Bereich eine Karte und sammelt das Bild fuer das Paket."""
     image_path = card["image"]
     media.add(image_path)
     img_src = os.path.basename(image_path)
-    regions = card["regions"]
     mode = card.get("mode", "hide-one")
-    header = card.get("header", "")
-    extra = card.get("extra", "")
     tags = card.get("tags", [])
+    regions = card["regions"]
 
-    for target in range(len(regions)):
-        front = _occlusion_html(img_src, regions, target, mode, False, header, extra)
-        back = _occlusion_html(img_src, regions, target, mode, True, header, extra)
+    for target, (front, back) in enumerate(render_occlusion(card, img_src)):
         # Stabile GUID je (Bild, Bereich), damit Re-Import aktualisiert statt dupliziert.
         guid = genanki.guid_for(img_src, mode, target, regions[target].get("label", ""))
         deck.add_note(

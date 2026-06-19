@@ -34,6 +34,14 @@ Danach baut `tools/build.sh` aus einer Karten-JSON die `.apkg`:
 ./tools/build.sh decks/skript.cards.json
 ```
 
+Optionaler **Vorschau-/Feedbackloop** (rendert die Karten als PNG, damit man –
+v. a. bei Image Occlusion – sieht, ob alles sitzt). Das größere Vorschau-Image
+wird beim ersten Aufruf automatisch gebaut:
+
+```bash
+./tools/preview.sh decks/skript.cards.json   # -> decks/preview/skript/*.png
+```
+
 ## Ordnerstruktur
 
 ```
@@ -41,6 +49,8 @@ quellen/                 deine Quelldateien
 decks/                   erzeugte .cards.json + .apkg
 tools/build_deck.py      JSON → .apkg (genanki)
 tools/build.sh           Docker-Wrapper
+tools/preview.py/.sh     Karten → PNG-Vorschau (headless Chromium, Feedbackloop)
+tools/lint_cards.py      schnelle Inhalts-/Struktur-Prüfung
 reference/anki-manual/   offizielles Anki-Handbuch (Nachschlagewerk)
 reference/anki/          Anki-Quellcode (shallow clone, Nachschlagewerk)
 CLAUDE.md                Anleitung für Claude
