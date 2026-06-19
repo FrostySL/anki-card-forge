@@ -1,6 +1,9 @@
 # Generierte Anki-Pakete (reproduzierbar aus den .cards.json)
 decks/*.apkg
 
+# Gerenderte Vorschau-PNGs (reproduzierbar via tools/preview.sh)
+decks/preview/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -10,6 +13,8 @@ __pycache__/
 Thumbs.db
 *.swp
 
-# Hinweis: Quelldateien in quellen/ werden mitversioniert.
-# Falls deine Bücher/PDFs groß oder urheberrechtlich geschützt sind,
-# hier z. B. ergänzen:  quellen/*  und  !quellen/.gitkeep
+# Quelldateien (eigene PDFs/Bücher, oft persönlich/groß) NICHT versionieren.
+# Nur der Ordner bleibt erhalten. Willst du eine bestimmte Quelle doch tracken:
+#   git add -f quellen/dateiname.pdf
+quellen/*
+!quellen/.gitkeep
