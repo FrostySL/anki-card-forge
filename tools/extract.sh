@@ -2,9 +2,9 @@
 # Konvertiert Quell-PDFs in maschinenlesbares Markdown – im Extract-Container
 # (PyMuPDF + Tesseract-OCR-Fallback fuer gescannte Seiten).
 #
-#   ./tools/extract.sh quellen/EWP/03_Arbeitstechniken.pdf
-#   ./tools/extract.sh quellen/EWP/            # ganzen Themenordner
-#   -> aufbereitet/EWP/<name>.md
+#   ./tools/extract.sh quellen/Biologie/kapitel3.pdf
+#   ./tools/extract.sh quellen/Biologie/       # ganzen Themenordner
+#   -> aufbereitet/Biologie/<name>.md
 #
 # Erster Aufruf baut das Image automatisch.
 set -euo pipefail

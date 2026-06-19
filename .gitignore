@@ -6,8 +6,10 @@ decks/**/*.apkg
 decks/preview/
 decks/**/preview/
 
-# Aus persönlichen Quellen abgeleitete Karten, die nicht ins Repo sollen
-decks/EWP/03_Arbeitstechniken.cards.json
+# Eigene Karten-JSONs (aus persönlichen Quellen) bleiben lokal – nur das generische
+# Beispiel-Deck wird versioniert. Eine bestimmte doch tracken: git add -f <pfad>
+decks/**/*.cards.json
+!decks/beispiel.cards.json
 
 # Python
 __pycache__/

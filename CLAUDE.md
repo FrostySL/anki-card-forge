@@ -9,9 +9,9 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 
 | Ordner | Zweck |
 |---|---|
-| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/EWP/`, künftig `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
-| `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/EWP/`). |
-| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/EWP/03_Arbeitstechniken.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Gitignored (abgeleitet, reproduzierbar). |
+| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/Biologie/`, `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
+| `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/Biologie/`). |
+| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Gitignored (abgeleitet, reproduzierbar). |
 | `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
@@ -21,9 +21,9 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 **Konvention: pro Themengebiet ein Unterordner.** Quellen in `quellen/<Thema>/`,
 erzeugte Karten/Pakete in `decks/<Thema>/`. Der **Deckname** beginnt mit dem Thema,
 damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
-`"EWP::Hexagonale Architektur"`).
+`"Biologie::Zellatmung"`).
 
-1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/EWP/03_Arbeitstechniken.pdf`).
+1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/Biologie/zellatmung.pdf`).
    **Liegt eine `quellen/<Thema>/context.md` vor, zuerst diese lesen** — sie sagt,
    worum es geht und worauf der Fokus liegt; das steuert Auswahl und Schwerpunkt der Karten.
 2. **Quelle aufbereiten** (einmal pro neuer Datei): PDF → maschinenlesbares Markdown.
@@ -49,7 +49,7 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
    **Mehrere Dateien in EINE .apkg** bündeln (jede Datei = eigenes Deck; `::` im
    Decknamen erzeugt Unterdecks) — z. B. ein ganzes Thema in eine Datei:
    ```bash
-   ./tools/build.sh decks/EWP/teil1.cards.json decks/EWP/teil2.cards.json decks/EWP/EWP-komplett.apkg
+   ./tools/build.sh decks/Biologie/teil1.cards.json decks/Biologie/teil2.cards.json decks/Biologie/Biologie-komplett.apkg
    ```
 6. Sag dem Nutzer, dass `decks/<Thema>/<name>.apkg` fertig ist
    → in Anki per **Datei → Importieren** oder Doppelklick laden.

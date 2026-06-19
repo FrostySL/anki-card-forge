@@ -2,10 +2,10 @@
 """Konvertiert Quell-PDFs in maschinenlesbares Markdown (fuer effizientes Lesen/Zitieren).
 
 Aufruf (i. d. R. ueber tools/extract.sh im Extract-Container):
-    python extract.py quellen/EWP/03_Arbeitstechniken.pdf
-    python extract.py quellen/EWP/                 # ganzen Themenordner
-    python extract.py quellen/EWP/x.pdf -o aufbereitet/EWP/x.md
-    python extract.py quellen/EWP/x.pdf -j 8       # 8 Seiten parallel (Default: alle Kerne)
+    python extract.py quellen/Biologie/kapitel3.pdf
+    python extract.py quellen/Biologie/               # ganzen Themenordner
+    python extract.py quellen/Biologie/x.pdf -o aufbereitet/Biologie/x.md
+    python extract.py quellen/Biologie/x.pdf -j 8     # 8 Seiten parallel (Default: alle Kerne)
 
 pymupdf4llm liest die Textschicht als Markdown (behaelt Ueberschriften/Tabellen) und
 OCR-t gescannte Seiten automatisch per Tesseract (Sprache via --lang, Default deu+eng).
@@ -124,7 +124,7 @@ def _pdfs_in(folder):
 
 def main(argv):
     ap = argparse.ArgumentParser(description="PDF -> Markdown (parallel, mit OCR).")
-    ap.add_argument("input", help="PDF-Datei oder Ordner (z. B. quellen/EWP/)")
+    ap.add_argument("input", help="PDF-Datei oder Ordner (z. B. quellen/Biologie/)")
     ap.add_argument("-o", "--out", help="Ziel-.md (nur bei Einzeldatei)")
     ap.add_argument("-j", "--jobs", type=int, default=0,
                     help="parallele Seiten-Worker (Default: alle CPU-Kerne)")
