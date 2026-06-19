@@ -29,3 +29,8 @@ quellen/*
 # Aus den (persönlichen) Quellen abgeleitete Markdown-Extrakte (reproduzierbar
 # via tools/extract.sh) NICHT versionieren.
 aufbereitet/
+
+# Nachschlagewerke (Ankis Quellcode = AGPL-3.0, Anki-Handbuch) NICHT versionieren –
+# fremder Code/Lizenz. Lokal vorhalten; Anleitung in reference/README.md.
+reference/*
+!reference/README.md
