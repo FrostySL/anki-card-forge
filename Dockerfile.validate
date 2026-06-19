@@ -1,0 +1,10 @@
+# Schlankes Image zum Validieren von .apkg in der echten Anki-Engine (Backend,
+# ohne GUI). Getrennt von Builder- und Vorschau-Image.
+FROM python:3.12-slim
+
+ENV HOME=/tmp
+
+RUN pip install --no-cache-dir anki
+
+WORKDIR /work
+ENTRYPOINT ["python", "/work/tools/validate.py"]
