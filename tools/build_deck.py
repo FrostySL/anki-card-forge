@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""Baut aus einer Karten-JSON-Datei ein Anki-.apkg-Paket.
+"""Baut aus einer oder mehreren Karten-JSON-Dateien ein Anki-.apkg-Paket.
 
 Aufruf:
-    python build_deck.py <cards.json> [output.apkg]
+    python build_deck.py <cards.json> [weitere.cards.json ...] [output.apkg]
+
+Mehrere Eingabedateien landen als je eigenes Deck in EINER .apkg (z. B. Text-
+Karten + Abbildungs-Deck zusammen). Die Ausgabe ist das (einzige) *.apkg-Argument;
+fehlt es, wird der Name aus der ersten Eingabe abgeleitet.
 
 Wird i. d. R. ueber tools/build.sh im Docker-Container aufgerufen, z. B.:
     ./tools/build.sh decks/skript.cards.json
+    ./tools/build.sh decks/text.cards.json decks/bilder.cards.json decks/komplett.apkg
 
 Karten-Typen: "basic", "cloze", "occlusion" (Bild mit verdeckten Bereichen).
 JSON-Format siehe CLAUDE.md.
@@ -249,56 +254,69 @@ def _add_occlusion_notes(deck, card, media):
     return len(regions)
 
 
-def build(cards_path: str, out_path: str | None = None) -> str:
-    with open(cards_path, encoding="utf-8") as f:
-        data = json.load(f)
-
+def _deck_from_data(data, media):
+    """Baut aus einer geparsten cards.json ein genanki.Deck (+ zaehlt Notizen)."""
     deck_name = data["deck"]
     deck = genanki.Deck(stable_id("deck:" + deck_name), deck_name)
-    media: set[str] = set()
     note_count = 0
-
     for i, card in enumerate(data["cards"]):
         ctype = card.get("type", "basic")
         tags = card.get("tags", [])
         if ctype == "cloze":
             deck.add_note(
-                genanki.Note(
-                    model=CLOZE_MODEL,
-                    fields=[card["text"], card.get("extra", "")],
-                    tags=tags,
-                )
+                genanki.Note(model=CLOZE_MODEL, fields=[card["text"], card.get("extra", "")], tags=tags)
             )
             note_count += 1
         elif ctype == "basic":
             deck.add_note(
-                genanki.Note(
-                    model=BASIC_MODEL,
-                    fields=[card["front"], card["back"]],
-                    tags=tags,
-                )
+                genanki.Note(model=BASIC_MODEL, fields=[card["front"], card["back"]], tags=tags)
             )
             note_count += 1
         elif ctype == "occlusion":
             note_count += _add_occlusion_notes(deck, card, media)
         else:
             raise ValueError(
-                f"Karte {i}: unbekannter type '{ctype}' (erlaubt: basic, cloze, occlusion)"
+                f"{deck_name}, Karte {i}: unbekannter type '{ctype}' (erlaubt: basic, cloze, occlusion)"
             )
+    return deck, deck_name, note_count
+
+
+def _default_out(first_input):
+    base = os.path.basename(first_input)
+    for suffix in (".cards.json", ".json"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    return os.path.join("decks", base + ".apkg")
+
+
+def build(inputs, out_path: str | None = None) -> str:
+    """Baut aus einer ODER MEHREREN cards.json EINE .apkg.
+
+    Jede Datei wird zu einem eigenen Deck; '::' im Decknamen erzeugt Unterdecks.
+    So lassen sich z. B. Text-Karten und ein Abbildungs-Deck in einer Datei
+    zusammenfassen.
+    """
+    if isinstance(inputs, str):
+        inputs = [inputs]
+
+    media: set[str] = set()
+    decks = []
+    total = 0
+    for cards_path in inputs:
+        with open(cards_path, encoding="utf-8") as f:
+            data = json.load(f)
+        deck, deck_name, count = _deck_from_data(data, media)
+        decks.append((deck, deck_name, count))
+        total += count
 
     if out_path is None:
-        base = os.path.basename(cards_path)
-        for suffix in (".cards.json", ".json"):
-            if base.endswith(suffix):
-                base = base[: -len(suffix)]
-                break
-        out_path = os.path.join("decks", base + ".apkg")
-
+        out_path = _default_out(inputs[0])
     out_dir = os.path.dirname(out_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
-    package = genanki.Package(deck)
+    package = genanki.Package([d for d, _, _ in decks])
     if media:
         missing = [p for p in media if not os.path.exists(p)]
         if missing:
@@ -306,12 +324,21 @@ def build(cards_path: str, out_path: str | None = None) -> str:
         package.media_files = sorted(media)
 
     package.write_to_file(out_path)
-    print(f"OK: {note_count} Karten -> {out_path}  (Deck: {deck_name})")
+    if len(decks) == 1:
+        print(f"OK: {total} Karten -> {out_path}  (Deck: {decks[0][1]})")
+    else:
+        print(f"OK: {total} Karten in {len(decks)} Decks -> {out_path}")
+        for _, name, count in decks:
+            print(f"     - {name}: {count}")
     return out_path
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    # Positionsargumente: beliebig viele *.json (Eingaben) + optional ein *.apkg (Ausgabe)
+    args = sys.argv[1:]
+    inputs = [a for a in args if a.endswith(".json")]
+    outs = [a for a in args if a.endswith(".apkg")]
+    if not inputs or len(outs) > 1:
         print(__doc__)
         sys.exit(1)
-    build(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
+    build(inputs, outs[0] if outs else None)

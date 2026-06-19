@@ -26,6 +26,12 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
    ./tools/build.sh decks/<name>.cards.json
    ```
    → erzeugt `decks/<name>.apkg`. (Image fehlt? `docker build -t anki-karten .`)
+
+   **Mehrere Dateien in EINE .apkg** bündeln (jede Datei = eigenes Deck; `::` im
+   Decknamen erzeugt Unterdecks): alle `.json` angeben + ein `.apkg` als Ausgabe:
+   ```bash
+   ./tools/build.sh decks/text.cards.json decks/bilder.cards.json decks/komplett.apkg
+   ```
 5. Sag dem Nutzer, dass `decks/<name>.apkg` fertig ist
    → in Anki per **Datei → Importieren** oder Doppelklick laden.
 
