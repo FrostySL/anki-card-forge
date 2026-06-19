@@ -11,7 +11,8 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 |---|---|
 | `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/EWP/`, künftig `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
 | `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/EWP/`). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
+| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/EWP/03_Arbeitstechniken.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Gitignored (abgeleitet, reproduzierbar). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
 
@@ -25,10 +26,20 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
 1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/EWP/03_Arbeitstechniken.pdf`).
    **Liegt eine `quellen/<Thema>/context.md` vor, zuerst diese lesen** — sie sagt,
    worum es geht und worauf der Fokus liegt; das steuert Auswahl und Schwerpunkt der Karten.
-2. **Lies** die Datei mit dem Read-Tool (PDFs kann das Read-Tool direkt lesen).
-3. **Erstelle** die Karten (Skill `kartenbau` befolgen!) und schreibe sie als JSON
+2. **Quelle aufbereiten** (einmal pro neuer Datei): PDF → maschinenlesbares Markdown.
+   ```bash
+   ./tools/extract.sh quellen/<Thema>/<name>.pdf     # oder: quellen/<Thema>/ (ganzer Ordner)
+   ```
+   → `aufbereitet/<Thema>/<name>.md` (Seitenmarker `<!-- S. N -->`; gescannte Seiten
+   werden per OCR erkannt und als `(OCR)` markiert). **Danach aus dem `.md` lesen** —
+   das ist effizienter (greppbar, billiger, exakt zitierbar) als das PDF als Bild zu
+   laden. Bei `(OCR)`-Seiten Zitate gegen das Original-PDF gegenprüfen.
+   Seiten werden **parallel** verarbeitet (alle CPU-Kerne); mit `-j N` begrenzen
+   (z. B. bei wenig RAM), `--lang` für andere OCR-Sprachen.
+3. **Lies** das `.md` (Read-Tool); bei Bedarf gezielt Abschnitte/Seiten nachschlagen.
+4. **Erstelle** die Karten (Skill `kartenbau` befolgen!) und schreibe sie als JSON
    nach `decks/<Thema>/<name>.cards.json` (Format unten).
-4. **Baue** das Paket:
+5. **Baue** das Paket:
    ```bash
    ./tools/build.sh decks/<Thema>/<name>.cards.json
    ```
@@ -40,7 +51,7 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
    ```bash
    ./tools/build.sh decks/EWP/teil1.cards.json decks/EWP/teil2.cards.json decks/EWP/EWP-komplett.apkg
    ```
-5. Sag dem Nutzer, dass `decks/<Thema>/<name>.apkg` fertig ist
+6. Sag dem Nutzer, dass `decks/<Thema>/<name>.apkg` fertig ist
    → in Anki per **Datei → Importieren** oder Doppelklick laden.
 
 ## Feedbackloop: Karten vor dem Export selbst prüfen

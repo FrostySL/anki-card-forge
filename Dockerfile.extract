@@ -1,0 +1,18 @@
+# Image fuer Quellen-Aufbereitung: PDF -> Markdown (mit OCR fuer gescannte Seiten).
+# Getrennt vom schlanken Builder-Image; laeuft nur einmal pro neuer Quelle.
+FROM python:3.12-slim
+
+# Tesseract OCR (deutsch + englisch); PyMuPDF nutzt es fuer gescannte Seiten.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu \
+ && rm -rf /var/lib/apt/lists/*
+
+# tessdata-Pfad, damit PyMuPDFs OCR die Sprachdaten (auch deu) sicher findet.
+ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
+
+# PDF->Markdown (pymupdf4llm zieht PyMuPDF, das die Tesseract-Anbindung mitbringt).
+RUN pip install --no-cache-dir "pymupdf4llm"
+
+# Projekt wird zur Laufzeit nach /work gemountet (Skriptaenderungen wirken sofort).
+WORKDIR /work
+ENTRYPOINT ["python", "/work/tools/extract.py"]
