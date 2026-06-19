@@ -6,6 +6,9 @@ decks/**/*.apkg
 decks/preview/
 decks/**/preview/
 
+# Aus persönlichen Quellen abgeleitete Karten, die nicht ins Repo sollen
+decks/EWP/03_Arbeitstechniken.cards.json
+
 # Python
 __pycache__/
 *.py[cod]

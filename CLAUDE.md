@@ -9,7 +9,7 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 
 | Ordner | Zweck |
 |---|---|
-| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/EWP/`, künftig `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. |
+| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/EWP/`, künftig `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
 | `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/EWP/`). |
 | `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
@@ -23,6 +23,8 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
 `"EWP::Hexagonale Architektur"`).
 
 1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/EWP/03_Arbeitstechniken.pdf`).
+   **Liegt eine `quellen/<Thema>/context.md` vor, zuerst diese lesen** — sie sagt,
+   worum es geht und worauf der Fokus liegt; das steuert Auswahl und Schwerpunkt der Karten.
 2. **Lies** die Datei mit dem Read-Tool (PDFs kann das Read-Tool direkt lesen).
 3. **Erstelle** die Karten (Skill `kartenbau` befolgen!) und schreibe sie als JSON
    nach `decks/<Thema>/<name>.cards.json` (Format unten).
