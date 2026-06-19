@@ -36,13 +36,13 @@ def lint(cards_path):
     seen_fronts = {}
     for i, card in enumerate(cards):
         ctype = card.get("type", "basic")
-        if ctype == "basic":
+        if ctype in ("basic", "typein"):
             front = (card.get("front") or "").strip()
             back = (card.get("back") or "").strip()
             if not front:
-                err(i, "basic ohne 'front'.")
+                err(i, f"{ctype} ohne 'front'.")
             if not back:
-                err(i, "basic ohne 'back'.")
+                err(i, f"{ctype} ohne 'back'.")
             if front:
                 seen_fronts.setdefault(front, []).append(i)
             if len(back) > _LONG_ANSWER:
@@ -81,7 +81,7 @@ def lint(cards_path):
             if mode not in ("hide-one", "hide-all"):
                 err(i, f"unbekannter mode '{mode}' (hide-one | hide-all).")
         else:
-            err(i, f"unbekannter type '{ctype}' (basic | cloze | occlusion).")
+            err(i, f"unbekannter type '{ctype}' (basic | cloze | typein | occlusion).")
 
     for front, idxs in seen_fronts.items():
         if len(idxs) > 1:

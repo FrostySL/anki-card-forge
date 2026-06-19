@@ -11,7 +11,7 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 |---|---|
 | `quellen/` | Der Nutzer legt hier PDFs / Texte / Markdown rein. |
 | `decks/` | Hier landen die generierten `.cards.json` **und** die fertigen `.apkg`. |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
 
@@ -55,6 +55,13 @@ die Boxen per Auge platziert sind — prüfe das Ergebnis:
    richtigen Stellen? Zeigt die Rückseite das richtige Label? Layout ok?
 4. Sitzt etwas daneben → Koordinaten/Texte in `decks/<name>.cards.json` anpassen,
    dann erneut **preview** (und am Ende **build**). Schleife, bis es passt.
+5. **In der echten Anki-Engine validieren** (importiert + rendert jede Karte mit
+   Ankis Backend, ohne GUI — stärker als die Vorschau-Emulation):
+   ```bash
+   ./tools/validate.sh decks/<name>.apkg
+   ```
+   Exit 0 = Import ok, keine Render-Fehler, keine leeren Karten. Bei Problemen
+   meldet es Notiztyp + Karte.
 
 > Das Vorschau-Image (`anki-karten-preview`) ist groß (Chromium) und wird beim
 > ersten `preview.sh`-Aufruf automatisch gebaut. Das schlanke Builder-Image bleibt
@@ -83,9 +90,37 @@ die Boxen per Auge platziert sind — prüfe das Ergebnis:
 ```
 
 - `deck`: Deckname. `::` erzeugt Unterdecks in Anki.
-- `type`: `"basic"` (Front/Back), `"cloze"` (Lückentext mit `{{c1::...}}`)
-  oder `"occlusion"` (Bild mit verdeckten Bereichen, siehe unten).
+- `type`: `"basic"` (Front/Back), `"cloze"` (Lückentext mit `{{c1::...}}`),
+  `"typein"` (Antwort eintippen, Anki prüft) oder `"occlusion"` (Bild mit
+  verdeckten Bereichen, siehe unten).
 - `extra` (cloze/occlusion) und `tags` sind optional.
+
+## Kartentypen im Detail
+
+- **basic** — `front`, `back`. Mit `"reverse": true` werden **beide** Richtungen
+  erzeugt (Vor- und Rückrichtung, eine Notiz → zwei Karten) — gut für Begriff ↔
+  Definition / Vokabeln.
+- **typein** — `front`, `back`. Du tippst die Antwort, Anki vergleicht sie. Nur für
+  **exakte, kurze** Antworten (Begriffe, Schreibweisen, Abkürzungen).
+- **cloze** — `text` mit `{{c1::Lücke}}`, optional `{{c1::Lücke::Hinweis}}`;
+  mehrere `c1/c2/...` → mehrere Karten.
+- **occlusion** — Bild mit verdeckten Bereichen (siehe unten).
+
+### Vertiefung & Quelle (Klappbox) — auf JEDER Karte möglich
+
+Zwei optionale Felder an **jeder** Karte:
+- `explanation` — tiefere Erklärung / Zusammenhang („warum"). Darf HTML enthalten.
+- `source` — Herkunft/Beleg, z. B. `"Cockburn 2005; Skript S. 3"`.
+
+Beide erscheinen **nur auf der Rückseite** in einer **standardmäßig zugeklappten**
+Box („▸ Vertiefung & Quelle"). Wichtig (lernpsychologisch): zugeklappt + nach dem
+Abruf = elaboratives Feedback, ohne die Frage zu erleichtern. Also **nicht** den
+Antwort-Kern dort verstecken — die Box ergänzt, sie ersetzt die Antwort nicht.
+
+```json
+{ "type": "basic", "front": "...", "back": "...",
+  "explanation": "Kurz, warum/Zusammenhang.", "source": "Autor Jahr; Skript S. X" }
+```
 
 ## Image Occlusion ("Bild mit verdeckten Bereichen")
 

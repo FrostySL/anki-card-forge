@@ -68,6 +68,18 @@ ul, ol { text-align: left; display: inline-block; }
   margin-top: .6em; text-align: center;
   color: #c62828; font-weight: bold; font-size: 1.05em;
 }
+
+/* --- Klappbox auf der Rueckseite: Vertiefung & Quelle (elaboratives Feedback) --- */
+.more { margin-top: .9em; border-top: 1px solid #e0e0e0; padding-top: .4em; font-size: .92em; }
+.more > summary { cursor: pointer; color: #1565c0; font-weight: bold; list-style: none; }
+.more > summary::before { content: "▸ "; }
+.more[open] > summary::before { content: "▾ "; }
+.more-expl { margin: .5em 0; }
+.more-src { color: #666; font-style: italic; }
+
+/* type-in: Eingabevergleich von Anki */
+.typed-bad { color: #c62828; }
+.typed-good { color: #2e7d32; }
 """
 
 BASIC_MODEL = genanki.Model(
@@ -93,8 +105,43 @@ CLOZE_MODEL = genanki.Model(
         {
             "name": "Cloze",
             "qfmt": "{{cloze:Text}}",
-            "afmt": "{{cloze:Text}}<br>{{Extra}}",
+            "afmt": "{{cloze:Text}}{{#Extra}}<br>{{Extra}}{{/Extra}}",
         }
+    ],
+    css=_CSS,
+)
+
+# Eingabe pruefen: vorne tippt man die Antwort, Anki vergleicht ({{type:Back}}).
+TYPEIN_MODEL = genanki.Model(
+    stable_id("anki-karten:typein-model:v1"),
+    "Anki-Karten Type-in",
+    fields=[{"name": "Front"}, {"name": "Back"}, {"name": "More"}],
+    templates=[
+        {
+            "name": "Type-in",
+            "qfmt": "{{Front}}<br><br>{{type:Back}}",
+            "afmt": '{{Front}}<hr id="answer">{{type:Back}}{{More}}',
+        }
+    ],
+    css=_CSS,
+)
+
+# Bidirektional: eine Notiz -> zwei Karten (Vor- und Rueckrichtung).
+REVERSED_MODEL = genanki.Model(
+    stable_id("anki-karten:reversed-model:v1"),
+    "Anki-Karten Basic+Reversed",
+    fields=[{"name": "Front"}, {"name": "Back"}, {"name": "More"}],
+    templates=[
+        {
+            "name": "Vorwaerts",
+            "qfmt": "{{Front}}",
+            "afmt": '{{FrontSide}}<hr id="answer">{{Back}}{{More}}',
+        },
+        {
+            "name": "Rueckwaerts",
+            "qfmt": "{{Back}}",
+            "afmt": '{{FrontSide}}<hr id="answer">{{Front}}{{More}}',
+        },
     ],
     css=_CSS,
 )
@@ -179,11 +226,54 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
 # Model-Templates oben muessen hier mitgezogen werden.
 
 
+def _more_html(card):
+    """Zugeklappte 'Vertiefung & Quelle'-Box (oder '' wenn nichts vorhanden).
+
+    Erscheint NUR auf der Rueckseite, standardmaessig zu -> elaboratives Feedback
+    nach dem Abruf, ohne die Frage zu erleichtern. 'explanation' darf HTML enthalten,
+    'source' wird als Text escaped.
+    """
+    expl = (card.get("explanation") or "").strip()
+    src = (card.get("source") or "").strip()
+    if not expl and not src:
+        return ""
+    parts = []
+    if expl:
+        parts.append(f'<div class="more-expl">{expl}</div>')
+    if src:
+        parts.append(f'<div class="more-src">Quelle: {html.escape(src)}</div>')
+    if expl and src:
+        label = "Vertiefung &amp; Quelle"
+    elif expl:
+        label = "Vertiefung"
+    else:
+        label = "Quelle"
+    return f'<details class="more"><summary>{label}</summary>{"".join(parts)}</details>'
+
+
 def render_basic(card):
-    """(front, back) — spiegelt das afmt von BASIC_MODEL."""
+    """(front, back) — spiegelt das afmt von BASIC_MODEL (+ Klappbox)."""
     front = card["front"]
-    back = f'{card["front"]}<hr id="answer">{card["back"]}'
+    back = f'{front}<hr id="answer">{card["back"]}{_more_html(card)}'
     return front, back
+
+
+def render_reversed(card):
+    """Liste [(front, back), ...] fuer beide Richtungen (REVERSED_MODEL)."""
+    f, b, more = card["front"], card["back"], _more_html(card)
+    return [
+        (f, f'{f}<hr id="answer">{b}{more}'),
+        (b, f'{b}<hr id="answer">{f}{more}'),
+    ]
+
+
+def render_typein(card):
+    """(front, back) fuer TYPEIN_MODEL. In der Vorschau ist das Eingabefeld nur
+    angedeutet (Ankis {{type:}}-Vergleich gibt es im Browser nicht)."""
+    front = card["front"]
+    front_preview = f'{front}<br><br><i style="color:#888">[Antwort eintippen]</i>'
+    back = f'{front}<hr id="answer">{card["back"]}{_more_html(card)}'
+    return front_preview, back
 
 
 _CLOZE_RE = re.compile(r"\{\{c(\d+)::(.+?)\}\}", re.DOTALL)
@@ -210,13 +300,13 @@ def _render_cloze_side(text, active, reveal):
 def render_cloze(card):
     """Liste von (front, back) — eine pro cN, spiegelt Ankis Cloze-Verhalten."""
     text = card["text"]
-    extra = card.get("extra", "")
+    tail = card.get("extra", "") + _more_html(card)  # entspricht dem Extra-Feld
     out = []
     for num in _cloze_numbers(text):
         front = _render_cloze_side(text, num, reveal=False)
         back = _render_cloze_side(text, num, reveal=True)
-        if extra:
-            back = f"{back}<br>{extra}"
+        if tail:
+            back = f"{back}<br>{tail}"
         out.append((front, back))
     return out
 
@@ -228,10 +318,11 @@ def render_occlusion(card, img_src):
     mode = card.get("mode", "hide-one")
     header = card.get("header", "")
     extra = card.get("extra", "")
+    more = _more_html(card)
     out = []
     for target in range(len(regions)):
         front = _occlusion_html(img_src, regions, target, mode, False, header, extra)
-        back = _occlusion_html(img_src, regions, target, mode, True, header, extra)
+        back = _occlusion_html(img_src, regions, target, mode, True, header, extra) + more
         out.append((front, back))
     return out
 
@@ -262,21 +353,35 @@ def _deck_from_data(data, media):
     for i, card in enumerate(data["cards"]):
         ctype = card.get("type", "basic")
         tags = card.get("tags", [])
+        more = _more_html(card)
         if ctype == "cloze":
+            # Klappbox haengt am Extra-Feld (afmt zeigt es nach der Luecke).
             deck.add_note(
-                genanki.Note(model=CLOZE_MODEL, fields=[card["text"], card.get("extra", "")], tags=tags)
+                genanki.Note(model=CLOZE_MODEL, fields=[card["text"], card.get("extra", "") + more], tags=tags)
             )
             note_count += 1
         elif ctype == "basic":
+            if card.get("reverse"):
+                deck.add_note(
+                    genanki.Note(model=REVERSED_MODEL, fields=[card["front"], card["back"], more], tags=tags)
+                )
+            else:
+                # Klappbox haengt hinten am Back-Feld (Model unveraendert -> kompatibel).
+                deck.add_note(
+                    genanki.Note(model=BASIC_MODEL, fields=[card["front"], card["back"] + more], tags=tags)
+                )
+            note_count += 1
+        elif ctype == "typein":
             deck.add_note(
-                genanki.Note(model=BASIC_MODEL, fields=[card["front"], card["back"]], tags=tags)
+                genanki.Note(model=TYPEIN_MODEL, fields=[card["front"], card["back"], more], tags=tags)
             )
             note_count += 1
         elif ctype == "occlusion":
             note_count += _add_occlusion_notes(deck, card, media)
         else:
             raise ValueError(
-                f"{deck_name}, Karte {i}: unbekannter type '{ctype}' (erlaubt: basic, cloze, occlusion)"
+                f"{deck_name}, Karte {i}: unbekannter type '{ctype}' "
+                "(erlaubt: basic, cloze, typein, occlusion)"
             )
     return deck, deck_name, note_count
 

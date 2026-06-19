@@ -50,8 +50,15 @@ def _collect(data):
     items = []
     for card in data["cards"]:
         ctype = card.get("type", "basic")
-        if ctype == "basic":
+        if ctype == "basic" and card.get("reverse"):
+            fwd, rev = build_deck.render_reversed(card)
+            items.append(("reversed", "→ " + _short(card.get("front", "")), *fwd))
+            items.append(("reversed", "← " + _short(card.get("back", "")), *rev))
+        elif ctype == "basic":
             front, back = build_deck.render_basic(card)
+            items.append((ctype, _short(card.get("front", "")), front, back))
+        elif ctype == "typein":
+            front, back = build_deck.render_typein(card)
             items.append((ctype, _short(card.get("front", "")), front, back))
         elif ctype == "cloze":
             for n, (front, back) in enumerate(build_deck.render_cloze(card), 1):
@@ -62,7 +69,7 @@ def _collect(data):
             for n, (front, back) in enumerate(build_deck.render_occlusion(card, uri)):
                 items.append((ctype, regions[n].get("label", f"#{n + 1}"), front, back))
         else:
-            raise ValueError(f"Unbekannter type '{ctype}' (basic, cloze, occlusion)")
+            raise ValueError(f"Unbekannter type '{ctype}' (basic, cloze, typein, occlusion)")
     return items
 
 
@@ -113,6 +120,8 @@ def preview(cards_path):
         page = browser.new_page(viewport={"width": 800, "height": 600}, device_scale_factor=2)
         for i, (ctype, label, front, back) in enumerate(items, 1):
             for side, body in (("front", front), ("back", back)):
+                # Klappbox in der Vorschau aufgeklappt zeigen (im echten Deck bleibt sie zu).
+                body = body.replace('<details class="more">', '<details class="more" open>')
                 page.set_content(_DOC.format(css=build_deck._CSS, body=body))
                 fname = f"{i:02d}-{ctype}-{side}.png"
                 page.locator(".card").screenshot(path=os.path.join(outdir, fname))
