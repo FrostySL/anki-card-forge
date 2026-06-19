@@ -9,30 +9,36 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 
 | Ordner | Zweck |
 |---|---|
-| `quellen/` | Der Nutzer legt hier PDFs / Texte / Markdown rein. |
-| `decks/` | Hier landen die generierten `.cards.json` **und** die fertigen `.apkg`. |
+| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/EWP/`, künftig `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. |
+| `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/EWP/`). |
 | `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
 
 ## Workflow, wenn der Nutzer Karten will
 
-1. Quelldatei liegt in `quellen/` (z. B. `quellen/skript.pdf`).
+**Konvention: pro Themengebiet ein Unterordner.** Quellen in `quellen/<Thema>/`,
+erzeugte Karten/Pakete in `decks/<Thema>/`. Der **Deckname** beginnt mit dem Thema,
+damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
+`"EWP::Hexagonale Architektur"`).
+
+1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/EWP/03_Arbeitstechniken.pdf`).
 2. **Lies** die Datei mit dem Read-Tool (PDFs kann das Read-Tool direkt lesen).
-3. **Erstelle** die Karten und schreibe sie als JSON nach `decks/<name>.cards.json`
-   (Format unten).
+3. **Erstelle** die Karten (Skill `kartenbau` befolgen!) und schreibe sie als JSON
+   nach `decks/<Thema>/<name>.cards.json` (Format unten).
 4. **Baue** das Paket:
    ```bash
-   ./tools/build.sh decks/<name>.cards.json
+   ./tools/build.sh decks/<Thema>/<name>.cards.json
    ```
-   → erzeugt `decks/<name>.apkg`. (Image fehlt? `docker build -t anki-karten .`)
+   → erzeugt `decks/<Thema>/<name>.apkg` (Ausgabe landet neben der `.cards.json`).
+   (Image fehlt? `docker build -t anki-karten .`)
 
    **Mehrere Dateien in EINE .apkg** bündeln (jede Datei = eigenes Deck; `::` im
-   Decknamen erzeugt Unterdecks): alle `.json` angeben + ein `.apkg` als Ausgabe:
+   Decknamen erzeugt Unterdecks) — z. B. ein ganzes Thema in eine Datei:
    ```bash
-   ./tools/build.sh decks/text.cards.json decks/bilder.cards.json decks/komplett.apkg
+   ./tools/build.sh decks/EWP/teil1.cards.json decks/EWP/teil2.cards.json decks/EWP/EWP-komplett.apkg
    ```
-5. Sag dem Nutzer, dass `decks/<name>.apkg` fertig ist
+5. Sag dem Nutzer, dass `decks/<Thema>/<name>.apkg` fertig ist
    → in Anki per **Datei → Importieren** oder Doppelklick laden.
 
 ## Feedbackloop: Karten vor dem Export selbst prüfen

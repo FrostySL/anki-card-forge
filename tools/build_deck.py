@@ -392,7 +392,8 @@ def _default_out(first_input):
         if base.endswith(suffix):
             base = base[: -len(suffix)]
             break
-    return os.path.join("decks", base + ".apkg")
+    # .apkg neben die cards.json (z. B. decks/EWP/x.cards.json -> decks/EWP/x.apkg)
+    return os.path.join(os.path.dirname(first_input) or "decks", base + ".apkg")
 
 
 def build(inputs, out_path: str | None = None) -> str:

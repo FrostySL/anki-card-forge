@@ -1,8 +1,10 @@
-# Generierte Anki-Pakete (reproduzierbar aus den .cards.json)
+# Generierte Anki-Pakete (reproduzierbar aus den .cards.json) – auch in Themen-Unterordnern
 decks/*.apkg
+decks/**/*.apkg
 
-# Gerenderte Vorschau-PNGs (reproduzierbar via tools/preview.sh)
+# Gerenderte Vorschau-PNGs (reproduzierbar via tools/preview.sh) – auch verschachtelt
 decks/preview/
+decks/**/preview/
 
 # Python
 __pycache__/

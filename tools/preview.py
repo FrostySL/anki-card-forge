@@ -108,7 +108,9 @@ def preview(cards_path):
         if base.endswith(suffix):
             base = base[: -len(suffix)]
             break
-    outdir = os.path.join("decks", "preview", base)
+    # Vorschau neben die cards.json (z. B. decks/EWP/x.cards.json -> decks/EWP/preview/x/)
+    src_dir = os.path.dirname(cards_path) or "decks"
+    outdir = os.path.join(src_dir, "preview", base)
     os.makedirs(outdir, exist_ok=True)
 
     items = _collect(data)
