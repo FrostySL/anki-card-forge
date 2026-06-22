@@ -80,6 +80,13 @@ CLAUDE.md                 Anleitung + Karten-Format für Claude
 Deine Quellen, Extrakte und erzeugten Decks bleiben **lokal** (per `.gitignore`) —
 das Repo enthält nur die Werkzeuge und ein Beispiel-Deck.
 
+## Unterstützen
+
+Das Projekt ist kostenlos und Open Source. Wenn es dir hilft und du gerade gut
+drauf bist, freue ich mich über ein Trinkgeld über den **Sponsor-Button** oben am
+Repo (eingerichtet in [.github/FUNDING.yml](.github/FUNDING.yml)). Kein Muss —
+Sternchen ⭐ und Feedback helfen genauso.
+
 ## Lizenz
 
 [MIT](LICENSE). Dieses Projekt enthält **keinen** Anki-Quellcode; es erzeugt
