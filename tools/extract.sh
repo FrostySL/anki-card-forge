@@ -17,4 +17,11 @@ if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   docker build -f "$PROJECT_DIR/Dockerfile.extract" -t "$IMAGE" "$PROJECT_DIR"
 fi
 
-exec docker run --rm --user "$(id -u):$(id -g)" -v "$PROJECT_DIR":/work "$IMAGE" "$@"
+docker run --rm --user "$(id -u):$(id -g)" -v "$PROJECT_DIR":/work "$IMAGE" "$@"
+
+# Abbildungs-Index aktualisieren (stdlib-Python, kein Docker) – ueber die erzeugten .md.
+# Ergaenzt aufbereitet/<Thema>/<name>.figures.md + Per-Seite-Marker "· N Abb.".
+if [ -d "$PROJECT_DIR/aufbereitet" ]; then
+  python3 "$PROJECT_DIR/tools/figindex.py" "$PROJECT_DIR/aufbereitet" \
+    || echo "Hinweis: Abbildungs-Index konnte nicht erstellt werden (figindex.py)." >&2
+fi

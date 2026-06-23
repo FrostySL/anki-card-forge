@@ -76,6 +76,11 @@ Fakt → Quelle nennen statt raten.
 
 - **Grounding:** Karteninhalt **nur** aus dem bereitgestellten Quelltext, nicht aus
   Modellwissen → keine Halluzinationen. Quelle in `source`.
+- **Bild-Check:** Das `.md` enthält **keine Bilder**, nur Captions. Vor dem Bauen den
+  Abbildungs-Index `aufbereitet/<Thema>/<name>.figures.md` (bzw. `· N Abb.`-Marker)
+  durchgehen. Bei **räumlich-visuellen** Konzepten oder wenn das Bild Info trägt, die
+  der Text nicht hergibt → Original-PDF-Seite per Read-Tool ansehen (`pages="<S.>"`)
+  und ggf. `occlusion`-/Bildkarte bauen, statt das Bild zu übersehen.
 - **Verbosität vermeiden:** LLM-typische lange „Absatz-Karten" verletzen Atomarität.
 - **Dubletten/Redundanz** vermeiden (nicht denselben Fakt mehrfach).
 - **Selbstcheck** jede Karte gegen die Checkliste; Durchfaller neu formulieren.
@@ -92,3 +97,4 @@ Fakt → Quelle nennen statt raten.
 - [ ] Cloze: nur Schlüsselwort ausgelöscht; reverse nur bei echter Zwei-Wege-Nutzung.
 - [ ] Vertiefung/Quelle (falls sinnvoll) in `explanation`/`source` — nicht im Abruf.
 - [ ] **Aus der Quelle belegt** (grounded), keine Dublette.
+- [ ] **Bild-Check** gemacht: relevante Abbildung (`.figures.md`) angesehen, falls visuell.
