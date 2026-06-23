@@ -36,7 +36,7 @@ def _clean_caption(raw):
         idx = s.find(cut)
         if idx != -1:
             s = s[:idx]
-    s = re.split(r"\.{3,}", s, 1)[0]      # Punktfuehrung eines Verzeichnis-Eintrags abschneiden
+    s = re.split(r"\.{3,}", s, maxsplit=1)[0]  # Punktfuehrung eines Verzeichnis-Eintrags abschneiden
     s = s.replace("*", " ")
     s = re.sub(r"\s+", " ", s).strip(" —–-:")
     return s
