@@ -75,17 +75,22 @@ Fakt → Quelle nennen statt raten.
 ## Beim KI-Generieren (also: von dir)
 
 - **Grounding:** Karteninhalt **nur** aus dem bereitgestellten Quelltext, nicht aus
-  Modellwissen → keine Halluzinationen. Quelle in `source`.
+  Modellwissen → keine Halluzinationen. Quelle in `source`. Nachprüfbar mit
+  `tools/grounding_check.py` (Antwort gegen Quelltext; FEHLER = evtl. erfunden).
 - **Bild-Check:** Das `.md` enthält **keine Bilder**, nur Captions. Vor dem Bauen den
   Abbildungs-Index `aufbereitet/<Thema>/<name>.figures.md` (bzw. `· N Abb.`-Marker)
   durchgehen. Bei **räumlich-visuellen** Konzepten oder wenn das Bild Info trägt, die
-  der Text nicht hergibt → Original-PDF-Seite per Read-Tool ansehen (`pages="<S.>"`)
-  und ggf. `occlusion`-/Bildkarte bauen, statt das Bild zu übersehen.
+  der Text nicht hergibt → den geschnittenen Crop
+  `aufbereitet/<Thema>/figures/<name>_S<S.>_*.png` per Read-Tool ansehen (billiger als
+  die ganze PDF-Seite; fehlt er, dann `pages="<S.>"` am PDF) und ggf.
+  `occlusion`-/Bildkarte bauen — die Crops sind auch direkt die occlusion-`image`.
 - **Verbosität vermeiden:** LLM-typische lange „Absatz-Karten" verletzen Atomarität.
-- **Dubletten/Redundanz** vermeiden (nicht denselben Fakt mehrfach).
+- **Dubletten/Redundanz** vermeiden (nicht denselben Fakt mehrfach) — über ein ganzes
+  Thema mit `tools/coverage.py decks/<Thema>/` (Beinah-Dubletten + Abdeckungslücken).
 - **Selbstcheck** jede Karte gegen die Checkliste; Durchfaller neu formulieren.
-- Danach: `tools/lint_cards.py` (Struktur), `tools/preview.sh` (ansehen),
-  `tools/validate.sh` (echte Anki-Engine).
+- Danach: `tools/lint_cards.py` (Struktur), `tools/grounding_check.py` (Grounding),
+  `tools/preview.sh` (ansehen), `tools/validate.sh` (echte Anki-Engine) — oder
+  `tools/finish.sh` (lint+grounding+build+validate in einem).
 
 ## Checkliste — pro Karte vor dem Build
 

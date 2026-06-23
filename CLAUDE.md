@@ -11,8 +11,8 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 |---|---|
 | `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/Biologie/`, `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
 | `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/Biologie/`). |
-| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Dazu pro Datei ein **`<name>.figures.md`** (Abbildungs-Index: „Abb. N – S. P: Titel"); Seitenmarker zeigen die Bildzahl (`<!-- S. 12 · 2 Abb. -->`). **Bilder selbst sind nicht im `.md`** — die echte Seite via Read-Tool am PDF ansehen (`pages="<S.>"`). Gitignored (abgeleitet, reproduzierbar). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
+| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Dazu pro Datei ein **`<name>.figures.md`** (Abbildungs-Index: „Abb. N – S. P: Titel"); Seitenmarker zeigen die Bildzahl (`<!-- S. 12 · 2 Abb. -->`). **Bilder selbst sind nicht im `.md`** — entweder die echte Seite via Read-Tool am PDF ansehen (`pages="<S.>"`) **oder** die per `figextract.sh` geschnittenen Crops unter **`figures/<name>_S<Seite>_<i>.png`** nutzen (Manifest `<name>.figures.json`: Seite, Bbox 0..1, Art). Gitignored (abgeleitet, reproduzierbar). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `figextract.py`/`figextract.sh` (Abbildungen aus PDF schneiden → PNG-Crops), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Struktur-Check), `grounding_check.py` (Karten gegen Quelltext prüfen), `coverage.py` (Dubletten + Abdeckung über alle cards.json), `validate.py`/`validate.sh` (echte Anki-Engine). **Orchestratoren:** `prep.sh` (extract+figindex+figextract in einem), `finish.sh` (lint+grounding+build+validate). |
 | `reference/` | **Lokale** Anki-Nachschlagewerke (Handbuch + Quellcode), **nicht im Repo** (fremde Lizenz/AGPL) — optional lokal klonen, siehe `reference/README.md`. |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). Falls lokal vorhanden. |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**, falls lokal vorhanden. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
@@ -27,25 +27,29 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
 1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/Biologie/zellatmung.pdf`).
    **Liegt eine `quellen/<Thema>/context.md` vor, zuerst diese lesen** — sie sagt,
    worum es geht und worauf der Fokus liegt; das steuert Auswahl und Schwerpunkt der Karten.
-2. **Quelle aufbereiten** (einmal pro neuer Datei): PDF → maschinenlesbares Markdown.
+2. **Quelle aufbereiten** (einmal pro neuer Datei): PDF → maschinenlesbares Markdown
+   **und** Abbildungen schneiden — in einem Schritt:
    ```bash
-   ./tools/extract.sh quellen/<Thema>/<name>.pdf     # oder: quellen/<Thema>/ (ganzer Ordner)
+   ./tools/prep.sh quellen/<Thema>/<name>.pdf        # oder: quellen/<Thema>/ (ganzer Ordner)
    ```
-   → `aufbereitet/<Thema>/<name>.md` (Seitenmarker `<!-- S. N -->`; gescannte Seiten
-   werden per OCR erkannt und als `(OCR)` markiert). **Danach aus dem `.md` lesen** —
-   das ist effizienter (greppbar, billiger, exakt zitierbar) als das PDF als Bild zu
-   laden. Bei `(OCR)`-Seiten Zitate gegen das Original-PDF gegenprüfen.
-   Seiten werden **parallel** verarbeitet (alle CPU-Kerne); mit `-j N` begrenzen
-   (z. B. bei wenig RAM), `--lang` für andere OCR-Sprachen. **Danach** läuft
-   automatisch `tools/figindex.py` und schreibt den Abbildungs-Index
-   `aufbereitet/<Thema>/<name>.figures.md` + Per-Seite-Marker `· N Abb.`.
+   `prep.sh` bündelt `extract.sh` (→ `.md` + `figindex.py` → `.figures.md`) und
+   `figextract.sh` (→ `figures/<name>_S*.png` + `<name>.figures.json`). Ergebnis:
+   `aufbereitet/<Thema>/<name>.md` (Seitenmarker `<!-- S. N -->`; gescannte Seiten
+   per OCR erkannt und als `(OCR)` markiert). **Danach aus dem `.md` lesen** — das ist
+   effizienter (greppbar, billiger, exakt zitierbar) als das PDF als Bild zu laden.
+   Bei `(OCR)`-Seiten Zitate gegen das Original-PDF gegenprüfen. Seiten werden
+   **parallel** verarbeitet (alle CPU-Kerne); Einzelschritte gehen weiter mit
+   `./tools/extract.sh` (`-j N` begrenzt, `--lang` für andere OCR-Sprachen) bzw.
+   `./tools/figextract.sh` (`--min-area`/`--zoom` justieren).
 3. **Lies** das `.md` (Read-Tool); bei Bedarf gezielt Abschnitte/Seiten nachschlagen.
    **Bild-Check:** Das `.md` enthält **keine Bilder**, nur Captions. Schau in
    `<name>.figures.md` (bzw. die `· N Abb.`-Marker), wo Abbildungen liegen. Ist ein
    Konzept **räumlich-visuell** (Diagramm, Graph, Schema) oder trägt das Bild Info,
-   die der Text nicht hergibt → die **Original-PDF-Seite mit dem Read-Tool ansehen**
-   (`pages="<S.>"`) und entscheiden, ob eine `occlusion`-/Bildkarte nötig ist —
-   statt das Bild zu übersehen.
+   die der Text nicht hergibt → **billig den geschnittenen Crop** unter
+   `aufbereitet/<Thema>/figures/<name>_S<S.>_*.png` mit dem Read-Tool ansehen (statt
+   die ganze PDF-Seite zu laden) und entscheiden, ob eine `occlusion`-/Bildkarte nötig
+   ist. Fehlt ein Crop (Vektor nicht erkannt) → Original-PDF-Seite ansehen
+   (`pages="<S.>"`). So wird kein Bild übersehen.
 4. **Erstelle** die Karten (Skill `kartenbau` befolgen!) und schreibe sie als JSON
    nach `decks/<Thema>/<name>.cards.json` (Format unten).
 5. **Baue** das Paket:
@@ -74,6 +78,21 @@ die Boxen per Auge platziert sind — prüfe das Ergebnis:
    ```
    Meldet leere Felder, fehlende Lücken, Occlusion-Koordinaten außerhalb 0..1,
    doppelte Fragen usw.
+1b. **Grounding prüfen** (Anti-Halluzination, reines Python): stehen die Antworten
+   wirklich im Quelltext, stimmen zitierte Seiten?
+   ```bash
+   python3 tools/grounding_check.py decks/<Thema>/<name>.cards.json
+   ```
+   FEHLER = Antwort kaum im Quelltext (evtl. erfunden); Warnung = nur teils gedeckt
+   (z. B. fremdsprachiger Term) → gegen die Quelle prüfen. Heuristik: Warnungen sind
+   ein „nachsehen", kein Beweis. Quelle wird automatisch aus dem Dateinamen abgeleitet
+   (sonst `--source <md|ordner>`).
+1c. **Abdeckung & Dubletten** über ein ganzes Thema (wenn mehrere `cards.json`):
+   ```bash
+   python3 tools/coverage.py decks/<Thema>/
+   ```
+   Zeigt Beinah-Dubletten über Dateigrenzen (was `lint_cards.py` nicht sieht) und —
+   sofern Karten `source: "… S. N"` tragen — welche Quellseiten noch keine Karte haben.
 2. **Darstellung rendern** (headless Chromium, gleiches HTML wie im .apkg):
    ```bash
    ./tools/preview.sh decks/<name>.cards.json
@@ -90,6 +109,10 @@ die Boxen per Auge platziert sind — prüfe das Ergebnis:
    ```
    Exit 0 = Import ok, keine Render-Fehler, keine leeren Karten. Bei Problemen
    meldet es Notiztyp + Karte.
+
+**Abkürzung:** `./tools/finish.sh decks/<Thema>/<name>.cards.json` macht 1 + 1b +
+Build + Validate in einem Rutsch (Lint ist ein Gate; Grounding nur Hinweis). Bei
+Occlusion-Karten zusätzlich `preview.sh` und die PNGs ansehen (Schritte 2–4).
 
 > Das Vorschau-Image (`anki-karten-preview`) ist groß (Chromium) und wird beim
 > ersten `preview.sh`-Aufruf automatisch gebaut. Das schlanke Builder-Image bleibt
@@ -172,7 +195,9 @@ wird **eine Karte** erzeugt.
 ```
 
 - `image`: Pfad **relativ zum Projekt-Root** (z. B. `quellen/herz.png`). Das Bild
-  wird automatisch ins `.apkg` eingebettet.
+  wird automatisch ins `.apkg` eingebettet. **Folien-Abbildungen** haben keine eigene
+  Datei → vorher `figextract.sh` laufen lassen und auf den geschnittenen Crop zeigen
+  (`aufbereitet/<Thema>/figures/<name>_S<Seite>_<i>.png`).
 - `mode`: `"hide-one"` (nur der gesuchte Bereich ist verdeckt, Rest sichtbar) oder
   `"hide-all"` (alle verdeckt, beim Aufdecken wird nur der gesuchte gezeigt).
 - `regions`: Liste der Bereiche. **Koordinaten als Bruchteil 0..1** (relativ zur
@@ -182,9 +207,10 @@ wird **eine Karte** erzeugt.
 ### So platziere ich (Claude) die Bereiche
 
 **Bevorzugt: OCR (pixelgenau).** Bei Bildern mit Textbeschriftungen zuerst die
-exakten Boxen erkennen lassen:
+exakten Boxen erkennen lassen (bei Folien auf den `figextract`-Crop):
 ```bash
-./tools/detect.sh quellen/bild.png        # optional: --lang deu+eng --min-conf 45
+./tools/detect.sh aufbereitet/<Thema>/figures/<name>_S<Seite>_<i>.png   # oder quellen/bild.png
+#                                                  optional: --lang deu+eng --min-conf 45
 ```
 → erzeugt `quellen/bild.labels.json` (erkannte Labels mit Bruchteil-Koordinaten)
 und `quellen/bild.labels.png` (Bild mit nummerierten Boxen). Das annotierte PNG mit
