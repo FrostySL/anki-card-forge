@@ -11,8 +11,8 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 |---|---|
 | `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/Biologie/`, `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
 | `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/Biologie/`). |
-| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Gitignored (abgeleitet, reproduzierbar). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
+| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Dazu pro Datei ein **`<name>.figures.md`** (Abbildungs-Index: „Abb. N – S. P: Titel"); Seitenmarker zeigen die Bildzahl (`<!-- S. 12 · 2 Abb. -->`). **Bilder selbst sind nicht im `.md`** — die echte Seite via Read-Tool am PDF ansehen (`pages="<S.>"`). Gitignored (abgeleitet, reproduzierbar). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Inhalts-Check), `validate.py`/`validate.sh` (echte Anki-Engine). |
 | `reference/` | **Lokale** Anki-Nachschlagewerke (Handbuch + Quellcode), **nicht im Repo** (fremde Lizenz/AGPL) — optional lokal klonen, siehe `reference/README.md`. |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). Falls lokal vorhanden. |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**, falls lokal vorhanden. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
@@ -36,8 +36,16 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
    das ist effizienter (greppbar, billiger, exakt zitierbar) als das PDF als Bild zu
    laden. Bei `(OCR)`-Seiten Zitate gegen das Original-PDF gegenprüfen.
    Seiten werden **parallel** verarbeitet (alle CPU-Kerne); mit `-j N` begrenzen
-   (z. B. bei wenig RAM), `--lang` für andere OCR-Sprachen.
+   (z. B. bei wenig RAM), `--lang` für andere OCR-Sprachen. **Danach** läuft
+   automatisch `tools/figindex.py` und schreibt den Abbildungs-Index
+   `aufbereitet/<Thema>/<name>.figures.md` + Per-Seite-Marker `· N Abb.`.
 3. **Lies** das `.md` (Read-Tool); bei Bedarf gezielt Abschnitte/Seiten nachschlagen.
+   **Bild-Check:** Das `.md` enthält **keine Bilder**, nur Captions. Schau in
+   `<name>.figures.md` (bzw. die `· N Abb.`-Marker), wo Abbildungen liegen. Ist ein
+   Konzept **räumlich-visuell** (Diagramm, Graph, Schema) oder trägt das Bild Info,
+   die der Text nicht hergibt → die **Original-PDF-Seite mit dem Read-Tool ansehen**
+   (`pages="<S.>"`) und entscheiden, ob eine `occlusion`-/Bildkarte nötig ist —
+   statt das Bild zu übersehen.
 4. **Erstelle** die Karten (Skill `kartenbau` befolgen!) und schreibe sie als JSON
    nach `decks/<Thema>/<name>.cards.json` (Format unten).
 5. **Baue** das Paket:
