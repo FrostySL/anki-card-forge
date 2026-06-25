@@ -37,19 +37,31 @@ def stable_id(text: str) -> int:
 
 _CSS = """
 .card {
+  /* Bewusst KEINE feste color/background: Anki faerbt Text+Hintergrund je nach
+     Theme selbst (dunkel im Nachtmodus, hell sonst). Wir setzen nur theme-neutrale
+     Akzente -> durchscheinende Graustufen + ein Blau, das hell UND dunkel lesbar
+     ist. So funktioniert der Nachtmodus, ohne auf eine .nightMode-Klasse zu setzen. */
+  --muted: #8a8a8a;
+  --line: rgba(128, 128, 128, .5);
+  --link: #4c8dff;
+  --th: rgba(128, 128, 128, .18);
+  --box: rgba(128, 128, 128, .16);
   font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   font-size: 20px;
   line-height: 1.5;
   text-align: left;
-  color: #222;
-  background: #fff;
   max-width: 700px;
   margin: 0 auto;
   padding: 1em;
 }
-hr#answer { margin: 1em 0; border: none; border-top: 1px solid #ccc; }
-.cloze { font-weight: bold; color: #2962ff; }
+hr#answer { margin: 1em 0; border: none; border-top: 1px solid var(--line); }
+.cloze { font-weight: bold; color: var(--link); }
 ul, ol { text-align: left; display: inline-block; }
+
+/* Tabellen zum Strukturieren von Karteninhalt (Zuordnungen, Vergleiche) */
+table { border-collapse: collapse; margin: .5em auto; }
+th, td { border: 1px solid var(--line); padding: .3em .6em; text-align: left; vertical-align: top; }
+th { background: var(--th); }
 
 /* --- Image Occlusion (Bild mit verdeckten Bereichen) --- */
 .io-head { text-align: center; font-weight: bold; margin-bottom: .5em; }
@@ -70,16 +82,57 @@ ul, ol { text-align: left; display: inline-block; }
 }
 
 /* --- Klappbox auf der Rueckseite: Vertiefung & Quelle (elaboratives Feedback) --- */
-.more { margin-top: .9em; border-top: 1px solid #e0e0e0; padding-top: .4em; font-size: .92em; }
-.more > summary { cursor: pointer; color: #1565c0; font-weight: bold; list-style: none; }
+.more { margin-top: .9em; border-top: 1px solid var(--line); padding-top: .4em; font-size: .92em; }
+.more > summary { cursor: pointer; color: var(--link); font-weight: bold; list-style: none; }
 .more > summary::before { content: "▸ "; }
 .more[open] > summary::before { content: "▾ "; }
 .more-expl { margin: .5em 0; }
-.more-src { color: #666; font-style: italic; }
+.more-src { color: var(--muted); font-style: italic; }
 
 /* type-in: Eingabevergleich von Anki */
 .typed-bad { color: #c62828; }
 .typed-good { color: #2e7d32; }
+
+/* --- Code & Tasten (Quelltext, Syntax, Shortcuts) --- */
+code, kbd, pre, samp { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+:not(pre) > code { background: var(--box); padding: .08em .35em; border-radius: 3px; font-size: .9em; }
+pre { background: var(--box); padding: .7em .9em; border-radius: 6px; overflow-x: auto; text-align: left; margin: .6em 0; }
+pre code { background: none; padding: 0; font-size: .92em; line-height: 1.4; }
+kbd { background: var(--box); border: 1px solid var(--line); border-bottom-width: 2px;
+      border-radius: 4px; padding: .05em .4em; font-size: .85em; white-space: nowrap; }
+
+/* --- Lern-Callouts: NUR auf Rueckseite/explanation, nie auf der Frage (Hint-Leak).
+   rgba-Hintergruende sehen hell UND im Nachtmodus gut aus. --- */
+.merke, .achtung, .beispiel, .eselsbruecke {
+  text-align: left; margin: .6em 0; padding: .5em .7em .5em 2.1em;
+  border-radius: 6px; border-left: 4px solid; position: relative;
+}
+.merke        { background: rgba( 67,160, 71,.14); border-color: #43a047; }
+.achtung      { background: rgba(251,140,  0,.14); border-color: #fb8c00; }
+.beispiel     { background: rgba( 30,136,229,.14); border-color: #1e88e5; }
+.eselsbruecke { background: rgba(142, 36,170,.16); border-color: #8e24aa; }
+.merke::before, .achtung::before, .beispiel::before, .eselsbruecke::before {
+  position: absolute; left: .55em; top: .5em; font-weight: bold;
+}
+.merke::before        { content: "\2605"; color: #43a047; }  /* ★ */
+.achtung::before      { content: "\26A0"; color: #fb8c00; }  /* ⚠ */
+.beispiel::before     { content: "\276F"; color: #1e88e5; }  /* ❯ */
+.eselsbruecke::before { content: "\1F9E0"; }                 /* 🧠 */
+/* Kontrast-Marker: bei Schwesterkarten das UNTERSCHEIDENDE Merkmal hervorheben */
+.kontrast { background: rgba(255,193,7,.4); border-radius: 3px; padding: 0 .2em; font-weight: bold; }
+
+/* --- Abruf-Helfer --- */
+/* Gestufter Hinweis (auch VORNE ok): minimaler Cue, zugeklappt -> Abruf bleibt. */
+.hint { margin: .5em 0; font-size: .92em; }
+.hint > summary { cursor: pointer; color: var(--link); font-weight: bold; list-style: none; }
+.hint > summary::before { content: "\1F4A1 "; }  /* 💡 */
+/* Prozess-/Flusskette: <div class="flow"><span class="step">A</span>
+   <span class="arrow">\2192</span><span class="step">B</span></div> */
+.flow { display: flex; flex-wrap: wrap; gap: .3em; align-items: center;
+        justify-content: center; text-align: center; margin: .6em 0; }
+.flow .step { background: var(--box); border: 1px solid var(--line);
+              border-radius: 6px; padding: .2em .55em; }
+.flow .arrow { color: var(--muted); padding: 0 .1em; }
 """
 
 BASIC_MODEL = genanki.Model(
@@ -354,26 +407,31 @@ def _deck_from_data(data, media):
         ctype = card.get("type", "basic")
         tags = card.get("tags", [])
         more = _more_html(card)
+        # Optionale stabile GUID: erlaubt einen Rebuild, der eine bereits in Anki
+        # gelernte Notiz AKTUALISIERT (gleiche GUID) statt sie zu duplizieren -> der
+        # Lernfortschritt bleibt erhalten. Ohne 'guid' generiert genanki wie gehabt
+        # eine aus den Feldern abgeleitete GUID.
+        guid = card.get("guid") or None
         if ctype == "cloze":
             # Klappbox haengt am Extra-Feld (afmt zeigt es nach der Luecke).
             deck.add_note(
-                genanki.Note(model=CLOZE_MODEL, fields=[card["text"], card.get("extra", "") + more], tags=tags)
+                genanki.Note(model=CLOZE_MODEL, fields=[card["text"], card.get("extra", "") + more], tags=tags, guid=guid)
             )
             note_count += 1
         elif ctype == "basic":
             if card.get("reverse"):
                 deck.add_note(
-                    genanki.Note(model=REVERSED_MODEL, fields=[card["front"], card["back"], more], tags=tags)
+                    genanki.Note(model=REVERSED_MODEL, fields=[card["front"], card["back"], more], tags=tags, guid=guid)
                 )
             else:
                 # Klappbox haengt hinten am Back-Feld (Model unveraendert -> kompatibel).
                 deck.add_note(
-                    genanki.Note(model=BASIC_MODEL, fields=[card["front"], card["back"] + more], tags=tags)
+                    genanki.Note(model=BASIC_MODEL, fields=[card["front"], card["back"] + more], tags=tags, guid=guid)
                 )
             note_count += 1
         elif ctype == "typein":
             deck.add_note(
-                genanki.Note(model=TYPEIN_MODEL, fields=[card["front"], card["back"], more], tags=tags)
+                genanki.Note(model=TYPEIN_MODEL, fields=[card["front"], card["back"], more], tags=tags, guid=guid)
             )
             note_count += 1
         elif ctype == "occlusion":

@@ -12,7 +12,7 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 | `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/Biologie/`, `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
 | `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/Biologie/`). |
 | `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Dazu pro Datei ein **`<name>.figures.md`** (Abbildungs-Index: „Abb. N – S. P: Titel"); Seitenmarker zeigen die Bildzahl (`<!-- S. 12 · 2 Abb. -->`). **Bilder selbst sind nicht im `.md`** — entweder die echte Seite via Read-Tool am PDF ansehen (`pages="<S.>"`) **oder** die per `figextract.sh` geschnittenen Crops unter **`figures/<name>_S<Seite>_<i>.png`** nutzen (Manifest `<name>.figures.json`: Seite, Bbox 0..1, Art). Gitignored (abgeleitet, reproduzierbar). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `figextract.py`/`figextract.sh` (Abbildungen aus PDF schneiden → PNG-Crops), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Struktur-Check), `grounding_check.py` (Karten gegen Quelltext prüfen), `coverage.py` (Dubletten + Abdeckung über alle cards.json), `validate.py`/`validate.sh` (echte Anki-Engine). **Orchestratoren:** `prep.sh` (extract+figindex+figextract in einem), `finish.sh` (lint+grounding+build+validate). **Tests:** `test.sh` (`tests/`, stdlib-`unittest` der Logik-Tools — kein Docker, kein pip; `./tools/test.sh`). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `figextract.py`/`figextract.sh` (Abbildungen aus PDF schneiden → PNG-Crops), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Struktur-Check), `grounding_check.py` (Karten gegen Quelltext prüfen), `coverage.py` (Dubletten + Abdeckung über alle cards.json), `validate.py`/`validate.sh` (echte Anki-Engine), `apkg_to_cards.py` (`.apkg` → `cards.json` zurück, **GUIDs erhalten** — für Änderungen an bereits gelernten Decks ohne Fortschrittsverlust). **Orchestratoren:** `prep.sh` (extract+figindex+figextract in einem), `finish.sh` (lint+grounding+build+validate). **Tests:** `test.sh` (`tests/`, stdlib-`unittest` der Logik-Tools — kein Docker, kein pip; `./tools/test.sh`). |
 | `reference/` | **Lokale** Anki-Nachschlagewerke (Handbuch + Quellcode), **nicht im Repo** (fremde Lizenz/AGPL) — optional lokal klonen, siehe `reference/README.md`. |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). Falls lokal vorhanden. |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**, falls lokal vorhanden. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
@@ -67,6 +67,34 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
 6. Sag dem Nutzer, dass `decks/<Thema>/<name>.apkg` fertig ist
    → in Anki per **Datei → Importieren** oder Doppelklick laden.
 
+## Bestehendes/gelerntes Deck ändern — OHNE Lernfortschritt zu verlieren
+
+Wenn der Nutzer Karten **schon in Anki gelernt** (oder dort bearbeitet) hat und du sie
+trotzdem ändern sollst: Lernfortschritt (Scheduling/Reviews) hängt an der Notiz-**GUID**.
+Die `.cards.json` im Repo ist dann veraltet — **nicht** daraus neu bauen. Stattdessen:
+
+1. Nutzer in Anki exportieren lassen: **Datei → Exportieren → `.apkg`** (mit Scheduling),
+   gewünschtes Deck.
+2. **Zurück nach `cards.json`** (GUIDs werden übernommen):
+   ```bash
+   python3 tools/apkg_to_cards.py <export>.apkg -o decks/<Thema>/<name>_rebuild
+   ```
+   Erkennt modernes (zstd) und Legacy-Format; je Deck eine `cards.json`. Läuft auf dem
+   Host (stdlib + zstd), **kein Docker**.
+3. Die `cards.json` editieren (Struktur/HTML — Skill `kartenbau`). **Cloze:** dieselben
+   `{{cN::…}}` (Nummer + Antwort) **byte-identisch** lassen → Karten-Ord = cN−1 bleibt,
+   Scheduling passt weiter. Tokens am besten programmatisch aus dem Original übernehmen
+   und nur das Drumherum (Tabelle/Liste) neu setzen, dann verifizieren, dass die
+   Token-Menge gleich ist. **Die ausgelesenen Felder enthalten die „Vertiefung & Quelle"-
+   Box schon eingebacken** → nicht zusätzlich `explanation`/`source` setzen (Doppel-Box).
+4. **Neu bauen** (GUIDs ⇒ Fortschritt bleibt): `./tools/build.sh decks/<Thema>/<name>_rebuild/*.cards.json "<Titel> (umstrukturiert).apkg"`.
+5. **Prüfen:** Bau-GUIDs == Export-GUIDs (Menge identisch), Kartenzahl unverändert,
+   `validate.sh` (0 Fehler). Bei CSS-/Struktur-Änderungen zusätzlich `preview.sh`.
+6. Nutzer importiert: **„Notizen aktualisieren"**, Scheduling **nicht** zurücksetzen.
+   Reine **CSS-Änderungen** (Notiztyp-Styling) aktualisiert der Import oft nicht →
+   alternativ die CSS einmal in *Notiztypen verwalten → Karten → Styling* einfügen
+   (kein Re-Import nötig, Inhalt/Fortschritt unberührt).
+
 ## Feedbackloop: Karten vor dem Export selbst prüfen
 
 Bevor du eine `.apkg` als „fertig" meldest — besonders bei **Image-Occlusion**, wo
@@ -95,11 +123,16 @@ die Boxen per Auge platziert sind — prüfe das Ergebnis:
    sofern Karten `source: "… S. N"` tragen — welche Quellseiten noch keine Karte haben.
 2. **Darstellung rendern** (headless Chromium, gleiches HTML wie im .apkg):
    ```bash
-   ./tools/preview.sh decks/<name>.cards.json
+   ./tools/preview.sh decks/<name>.cards.json          # Default: hell UND Nachtmodus
+   ./tools/preview.sh decks/<name>.cards.json --theme light   # nur hell (schneller)
    ```
-   → `decks/preview/<name>/NN-<typ>-front.png` + `-back.png` (+ `index.html`).
-3. **PNGs mit dem Read-Tool ansehen.** Prüfe: Decken die Occlusion-Masken die
-   richtigen Stellen? Zeigt die Rückseite das richtige Label? Layout ok?
+   → `decks/preview/<name>/NN-<typ>-front.png` + `-back.png` (hell) **und**
+   `…-front-dark.png` + `…-back-dark.png` (Anki-Nachtmodus) + `index.html`.
+3. **PNGs mit dem Read-Tool ansehen — hell UND dunkel.** Prüfe: Decken die
+   Occlusion-Masken die richtigen Stellen? Zeigt die Rückseite das richtige Label?
+   Layout ok? **Im Nachtmodus lesbar** (heller Text, Kontrast)? Der Nachtmodus deckt
+   genau die Fehler auf, die im Hellmodus unsichtbar sind (harte Farben → dunkel auf
+   dunkel) — deshalb standardmäßig beide.
 4. Sitzt etwas daneben → Koordinaten/Texte in `decks/<name>.cards.json` anpassen,
    dann erneut **preview** (und am Ende **build**). Schleife, bis es passt.
 5. **In der echten Anki-Engine validieren** (importiert + rendert jede Karte mit
@@ -145,6 +178,14 @@ Occlusion-Karten zusätzlich `preview.sh` und die PNGs ansehen (Schritte 2–4).
   `"typein"` (Antwort eintippen, Anki prüft) oder `"occlusion"` (Bild mit
   verdeckten Bereichen, siehe unten).
 - `extra` (cloze/occlusion) und `tags` sind optional.
+- **Alle Textfelder werden als HTML gerendert** (kein Escaping): zum Strukturieren
+  `<br>` (Umbruch — ein bloßes `\n` wirkt NICHT), `<ul>/<ol>`, `<table>` nutzen.
+  Struktur erhöht die Lesbarkeit, nicht die Faktenzahl pro Karte (Atomarität bleibt).
+- Optional `guid` pro Karte: stabile Anki-Notiz-GUID. Damit aktualisiert ein erneuter
+  Import eine **bereits gelernte** Notiz statt sie zu duplizieren → **Lernfortschritt
+  bleibt erhalten**. Nutzen, wenn man Inhalte aus einem Anki-Export neu aufbereitet
+  (GUIDs aus dem Export übernehmen, Felder ändern). Ohne `guid`: genanki leitet sie
+  wie gehabt aus den Feldern ab (geänderter Text ⇒ neue GUID ⇒ Fortschritt weg).
 
 ## Kartentypen im Detail
 

@@ -6,6 +6,11 @@ decks/**/*.apkg
 decks/preview/
 decks/**/preview/
 
+# Arbeitsverzeichnis von tools/apkg_to_cards.py (cards.json + CSS aus einem Anki-Export,
+# reproduzierbar) – bleibt lokal, ist nur Zwischenstand fuer einen Rebuild.
+decks/**/*_rebuild/
+decks/**/_rebuild/
+
 # Eigene Karten-JSONs (aus persönlichen Quellen) bleiben lokal – nur das generische
 # Beispiel-Deck wird versioniert. Eine bestimmte doch tracken: git add -f <pfad>
 decks/**/*.cards.json
