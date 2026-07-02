@@ -3,6 +3,7 @@
 #
 #   ./tools/finish.sh decks/SWT/04_UML.cards.json [decks/SWT/04_UML.apkg]
 #   ./tools/finish.sh decks/EWP/*.cards.json decks/EWP/EWP-complete.apkg   # bundle
+#   ./tools/finish.sh decks/SWT/04_UML.cards.json --push [--sync]          # + into Anki
 #
 # Several cards.json produce ONE .apkg (one deck per file, like build.sh) — the
 # target .apkg is then mandatory, and coverage.py runs additionally (duplicates/
@@ -10,21 +11,33 @@
 # Grounding and coverage are hints (non-blocking, since paraphrases can produce
 # false alarms) — still read the output. For occlusion cards, also run
 # ./tools/preview.sh and look at the PNGs.
+#
+# --push  imports the finished .apkg straight into a running Anki via the
+#         AnkiConnect add-on (see tools/anki_connect.py; optional feature).
+# --sync  additionally triggers AnkiWeb sync afterwards (requires --push).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 INPUTS=()
 OUT=""
+PUSH=0
+SYNC=0
 for arg in "$@"; do
   case "$arg" in
+    --push) PUSH=1 ;;
+    --sync) SYNC=1 ;;
     *.apkg)
       [ -z "$OUT" ] || { echo "Only ONE target .apkg allowed ('$OUT' and '$arg')." >&2; exit 1; }
       OUT="$arg" ;;
     *.json) INPUTS+=("$arg") ;;
-    *) echo "Unknown argument: $arg (expected *.cards.json or *.apkg)" >&2; exit 1 ;;
+    *) echo "Unknown argument: $arg (expected *.cards.json, *.apkg, --push or --sync)" >&2; exit 1 ;;
   esac
 done
+if [ "$SYNC" -eq 1 ] && [ "$PUSH" -eq 0 ]; then
+  echo "--sync requires --push (sync without importing makes no sense here)." >&2
+  exit 1
+fi
 if [ ${#INPUTS[@]} -eq 0 ]; then
   echo "Usage: tools/finish.sh <name>.cards.json [more.cards.json ...] [out.apkg]" >&2
   exit 1
@@ -57,6 +70,14 @@ echo "== Build (.apkg) =="
 
 echo "== Validate (real Anki engine) =="
 "$DIR/validate.sh" "$OUT"
+
+if [ "$PUSH" -eq 1 ]; then
+  echo "== Push into Anki (AnkiConnect) =="
+  python3 "$DIR/anki_connect.py" push "$OUT"
+  if [ "$SYNC" -eq 1 ]; then
+    python3 "$DIR/anki_connect.py" sync
+  fi
+fi
 
 echo "Done: $OUT"
 if grep -q '"occlusion"' "${INPUTS[@]}"; then

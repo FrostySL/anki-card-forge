@@ -35,6 +35,9 @@ What makes the cards good rather than just numerous:
   or AnkiMobile/AnkiDroid) to import and review the generated decks
 - **[Claude Code](https://claude.com/claude-code)** (the AI that writes the cards)
 - **Docker** (packs cards into `.apkg`, renders previews, runs OCR)
+- *Optional:* the **AnkiConnect** add-on (code `2055492159`) to push decks into
+  Anki without the manual import dance — see
+  [Optional: drive Anki directly](#optional-drive-anki-directly-ankiconnect)
 
 Nothing else — all Python dependencies live inside the Docker images.
 
@@ -143,13 +146,41 @@ Shortcut: `./tools/finish.sh decks/<topic>/<name>.cards.json` runs
 lint + grounding + build + validate in one go; give it several `cards.json`
 plus a target `.apkg` and it bundles a whole topic (and adds the coverage check).
 
+## Optional: drive Anki directly (AnkiConnect)
+
+With the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on,
+finished decks go straight into your collection — no *File → Import* dance.
+Everything runs over local HTTP (`127.0.0.1:8765`): **no AnkiWeb credentials,
+nothing leaves your machine**, and the core pipeline works fine without it.
+
+One-off setup: in Anki, **Tools → Add-ons → Get Add-ons…**, enter code
+`2055492159`, restart Anki. Then, with Anki running:
+
+```bash
+python3 tools/anki_connect.py ping                    # is Anki + add-on reachable?
+python3 tools/anki_connect.py push decks/<topic>/<name>.apkg   # import a built deck
+python3 tools/anki_connect.py export "<Deck>" out.apkg # export WITH scheduling
+python3 tools/anki_connect.py sync                    # trigger AnkiWeb sync
+python3 tools/anki_connect.py mirror                  # local backup of all decks
+```
+
+- `./tools/finish.sh … --push` imports the freshly built `.apkg` right after
+  validation; add `--sync` to also push it to AnkiWeb (and your phone).
+- `export` pulls a deck **with scheduling** — the automated entry into the
+  [progress-preserving rebuild](#updating-an-already-learned-deck-without-losing-progress)
+  below.
+- `mirror` snapshots every deck into `decks/_anki-mirror/` as `.apkg` **plus**
+  decoded, greppable `cards.json` (GUIDs included). The mirror is gitignored —
+  it stays a local backup and never lands in the repo.
+
 ## Updating an already-learned deck (without losing progress)
 
 Learning progress hangs off the Anki note GUID. To restructure cards you have
 already been studying:
 
 ```bash
-# 1. In Anki: File → Export → .apkg (with scheduling)
+# 1. In Anki: File → Export → .apkg (with scheduling) — or, with AnkiConnect:
+python3 tools/anki_connect.py export "<Deck>" export.apkg
 # 2. Back to editable JSON, GUIDs preserved (stdlib, no Docker):
 python3 tools/apkg_to_cards.py export.apkg -o decks/<topic>/<name>_rebuild
 # 3. Edit the cards.json, then rebuild — re-import UPDATES instead of duplicating:
@@ -172,8 +203,9 @@ Details (cloze pitfalls, CSS updates): [CLAUDE.md](CLAUDE.md).
 | `tools/build.sh` | card JSON → `.apkg` (genanki); also bundles several JSONs into one file |
 | `tools/preview.sh` | cards → PNG previews, light + night mode (headless Chromium) |
 | `tools/validate.sh` | check the `.apkg` in the real Anki engine (import + render) |
-| `tools/finish.sh` | shortcut: lint + grounding (+ coverage) + build + validate in one |
+| `tools/finish.sh` | shortcut: lint + grounding (+ coverage) + build + validate in one; `--push [--sync]` sends the result into Anki |
 | `tools/apkg_to_cards.py` | `.apkg` → `cards.json` back, GUIDs preserved (edit learned decks without losing progress) |
+| `tools/anki_connect.py` | optional: drive a running Anki via the AnkiConnect add-on — `push`/`export`/`sync`/`mirror`, local HTTP, no credentials |
 | `tools/test.sh` | test suite of the logic tools (stdlib `unittest`, no Docker/pip) |
 
 ## Folder structure

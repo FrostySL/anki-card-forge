@@ -23,7 +23,7 @@ Tesseract language packs in `Dockerfile.extract`).
 | `sources/<topic>/` | Sources **per topic** in their own subfolder (e.g. `sources/Biology/`, `sources/Math/`, `sources/SoftwareEngineering/`). PDFs/texts/Markdown. Optionally a **`context.md`** (tolerate other spellings/languages, e.g. `Kontext.md` — when in doubt `ls sources/<topic>/`) with context about the topic (what it is, why it's needed, focus, exam relevance) — read it **before** building cards. |
 | `decks/<topic>/` | Mirrors the topics: generated `.cards.json` **and** `.apkg` live in the same topic folder (e.g. `decks/Biology/`). |
 | `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). This is where I read/cite efficiently instead of from the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF via the Read tool (`pages="<p>"`) **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.png`** (manifest `<name>.figures.json`: page, bbox 0..1, kind). Gitignored (derived, reproducible). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs preserved** — for changing already-learned decks without losing progress). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs preserved** — for changing already-learned decks without losing progress), `anki_connect.py` (**optional**: drive a running Anki via the AnkiConnect add-on, code 2055492159 — `ping`/`push <apkg>`/`export <deck> <apkg>`/`sync`/`mirror`; pure local HTTP to 127.0.0.1:8765, stdlib only, no Docker, no credentials; clear error message if Anki/add-on is unreachable). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg; `--push [--sync]` imports the result into Anki via AnkiConnect). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
 | `.githooks/` | **Commit guard** (`pre-commit`): the repo is **public** — the hook blocks commits that would add personal material (sources/, extracted/, decks/ content, PDFs/.apkg), even with `git add -f`. Active via `git config core.hooksPath .githooks` (once per clone). If it blocks wrongly: extend the allowlist in the hook, don't blindly `--no-verify`. |
 | `reference/` | **Local** Anki reference works (manual + source code), **not in the repo** (third-party license/AGPL) — optionally clone locally, see `reference/README.md`. |
 | `reference/anki-manual/` | Official Anki manual as a reference (don't touch). If present locally. |
@@ -79,6 +79,24 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
    ```
 6. Tell the user that `decks/<topic>/<name>.apkg` is ready
    → load in Anki via **File → Import** or double-click.
+   **Optional — if Anki is running with the AnkiConnect add-on**: import it
+   directly instead (`python3 tools/anki_connect.py push decks/<topic>/<name>.apkg`,
+   or `--push` on `finish.sh`); `… sync` afterwards pushes it to AnkiWeb/phone.
+   Only sync when the user asks for it. Check availability with
+   `python3 tools/anki_connect.py ping` — if that fails, just fall back to the
+   normal manual-import message.
+
+### Optional AnkiConnect extras
+
+- **`mirror`** (`python3 tools/anki_connect.py mirror [deck …]`): snapshots all
+  top-level decks (or the named ones) from the running Anki into
+  `decks/_anki-mirror/` — per deck the `.apkg` **with scheduling** plus decoded
+  `cards.json` (GUIDs preserved, greppable e.g. for duplicate checks). Empty
+  decks are skipped. Everything there is gitignored: a local backup, never
+  committed.
+- Endpoint override via `ANKICONNECT_URL` (default `http://127.0.0.1:8765`).
+- Chosen over a headless AnkiWeb-login approach deliberately: local HTTP only,
+  **no credentials ever** — keep it that way.
 
 ## Changing an existing/learned deck — WITHOUT losing progress
 
@@ -88,7 +106,9 @@ off the note **GUID**. The `.cards.json` in the repo is stale then — do **not*
 rebuild from it. Instead:
 
 1. Have the user export in Anki: **File → Export → `.apkg`** (with scheduling),
-   the desired deck.
+   the desired deck. **Or, if AnkiConnect is available**, export it yourself:
+   `python3 tools/anki_connect.py export "<Deck>" <export>.apkg` (always includes
+   scheduling).
 2. **Back to `cards.json`** (GUIDs are carried over):
    ```bash
    python3 tools/apkg_to_cards.py <export>.apkg -o decks/<topic>/<name>_rebuild
