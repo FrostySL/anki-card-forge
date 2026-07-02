@@ -5,7 +5,7 @@ flashcards** — together with [Claude Code](https://claude.com/claude-code).
 Works for **any subject** and produces cards in **any language you ask for**.
 
 <p align="center">
-  <img src="docs/img/example-review.gif" width="600"
+  <img src="docs/img/example-review.gif" width="760"
        alt="Reviewing a generated deck in Anki: basic cards and image-occlusion cards on a circuit diagram">
 </p>
 
