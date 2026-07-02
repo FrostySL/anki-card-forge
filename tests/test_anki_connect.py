@@ -91,6 +91,22 @@ class TestPing(unittest.TestCase):
                 ac.ping()
 
 
+class TestSafeActions(unittest.TestCase):
+    def test_destructive_action_is_locked(self):
+        fake, payloads = urlopen_mock()
+        with mock.patch.object(ac.urllib.request, "urlopen", fake):
+            with self.assertRaisesRegex(ac.AnkiConnectError, "safe list"):
+                ac.invoke("deleteDecks", decks=["X"], cardsToo=True)
+        self.assertEqual(payloads, [])  # never reached the network
+
+    def test_env_override_allows_it_consciously(self):
+        fake, payloads = urlopen_mock({"result": None, "error": None})
+        with mock.patch.dict(os.environ, {"ANKICONNECT_ALLOW_UNSAFE": "1"}):
+            with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                ac.invoke("deleteDecks", decks=["X"])
+        self.assertEqual(payloads[0]["action"], "deleteDecks")
+
+
 class TestPush(unittest.TestCase):
     def test_sends_absolute_path(self):
         fake, payloads = urlopen_mock({"result": True, "error": None})
@@ -98,7 +114,7 @@ class TestPush(unittest.TestCase):
             rel = os.path.relpath(f.name)
             with mock.patch.object(ac.urllib.request, "urlopen", fake):
                 with redirect_stdout(io.StringIO()):
-                    ac.push(rel)
+                    ac.push(rel, backup=False)
         self.assertEqual(payloads[0]["action"], "importPackage")
         self.assertTrue(os.path.isabs(payloads[0]["params"]["path"]))
 
@@ -108,6 +124,82 @@ class TestPush(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 ac.push("does/not/exist.apkg")
         self.assertEqual(payloads, [])
+
+    def _push_with_backup(self, package_decks, anki_decks, responses):
+        """Runs push(backup=True) in a temp cwd with the apkg inspection mocked;
+        returns (payloads, stdout)."""
+        fake, payloads = urlopen_mock(
+            {"result": anki_decks, "error": None},  # deckNames
+            *responses)
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                open("in.apkg", "wb").close()
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "_decks_in_apkg",
+                                          lambda p: set(package_decks)):
+                    out = io.StringIO()
+                    with redirect_stdout(out):
+                        ac.push("in.apkg")
+            finally:
+                os.chdir(cwd)
+        return payloads, out.getvalue()
+
+    def test_backup_exports_affected_decks_before_import(self):
+        payloads, out = self._push_with_backup(
+            package_decks=["Bio::Resp"], anki_decks=["Bio", "Bio::Resp", "Other"],
+            responses=[
+                {"result": True, "error": None},  # exportPackage (backup)
+                {"result": True, "error": None},  # importPackage
+            ])
+        actions = [p["action"] for p in payloads]
+        self.assertEqual(actions, ["deckNames", "exportPackage", "importPackage"])
+        backup = payloads[1]["params"]
+        self.assertEqual(backup["deck"], "Bio::Resp")
+        self.assertTrue(backup["includeSched"])
+        self.assertIn(ac.BACKUP_DIR, backup["path"])
+        self.assertIn("Backup: 'Bio::Resp'", out)
+
+    def test_backup_skips_new_decks(self):
+        payloads, out = self._push_with_backup(
+            package_decks=["Brand::New"], anki_decks=["Other"],
+            responses=[{"result": True, "error": None}])  # importPackage only
+        self.assertEqual([p["action"] for p in payloads],
+                         ["deckNames", "importPackage"])
+        self.assertIn("nothing to save", out)
+
+    def test_backup_uses_minimal_covering_set(self):
+        payloads, _ = self._push_with_backup(
+            package_decks=["A", "A::B", "C"], anki_decks=["A", "A::B"],
+            responses=[
+                {"result": True, "error": None},  # exportPackage A (covers A::B)
+                {"result": True, "error": None},  # importPackage
+            ])
+        exports = [p["params"]["deck"] for p in payloads
+                   if p["action"] == "exportPackage"]
+        self.assertEqual(exports, ["A"])
+
+
+class TestBackupHelpers(unittest.TestCase):
+    def test_covering(self):
+        self.assertEqual(ac._covering({"A", "A::B", "A::B::C", "D::E"}),
+                         ["A", "D::E"])
+        self.assertEqual(ac._covering(set()), [])
+
+    def test_prune_keeps_newest(self):
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                for i in range(12):
+                    os.makedirs(os.path.join(ac.BACKUP_DIR, f"20260702-0000{i:02d}"))
+                ac._prune_backups(keep=10)
+                left = sorted(os.listdir(ac.BACKUP_DIR))
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(len(left), 10)
+        self.assertEqual(left[0], "20260702-000002")  # the two oldest are gone
 
 
 class TestExport(unittest.TestCase):

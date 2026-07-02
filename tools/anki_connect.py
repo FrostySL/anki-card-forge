@@ -10,7 +10,7 @@ Requires:
 
 Usage:
     python3 tools/anki_connect.py ping
-    python3 tools/anki_connect.py push <file.apkg>
+    python3 tools/anki_connect.py push <file.apkg> [--no-backup]
     python3 tools/anki_connect.py export "<Deck::Name>" <out.apkg>
     python3 tools/anki_connect.py sync
     python3 tools/anki_connect.py mirror [deck ...]
@@ -18,12 +18,20 @@ Usage:
 Endpoint overridable via ANKICONNECT_URL (default http://127.0.0.1:8765).
 Pure local HTTP — no credentials, no Docker; the .apkg build itself is
 unaffected and still goes through Docker as usual.
+
+Safeguards:
+  - Only a small allowlist of AnkiConnect actions is callable (SAFE_ACTIONS);
+    destructive ones (deleteDecks, deleteNotes, ...) are locked out.
+  - `push` first backs up every affected existing deck (with scheduling) to
+    decks/_anki-backups/<timestamp>/ — restore by pushing the backup .apkg.
 """
 import argparse
 import json
 import os
 import re
+import shutil
 import sys
+import time
 import urllib.request
 
 URL = os.environ.get("ANKICONNECT_URL", "http://127.0.0.1:8765")
@@ -42,12 +50,30 @@ class AnkiConnectError(RuntimeError):
     pass
 
 
+# Everything this tool needs — and nothing more. AnkiConnect also exposes
+# destructive actions (deleteDecks, deleteNotes, ...); those are deliberately
+# locked so no code path (or typo) can ever wipe someone's collection through
+# this tool. Conscious override only: ANKICONNECT_ALLOW_UNSAFE=1.
+SAFE_ACTIONS = {
+    "version", "requestPermission", "deckNames",
+    "importPackage", "exportPackage", "sync",
+}
+
+
 def invoke(action, **params):
     """Calls one AnkiConnect action, returns its `result`.
 
-    Raises AnkiConnectError if Anki/AnkiConnect is unreachable or the response
-    envelope carries a non-null `error`.
+    Only actions in SAFE_ACTIONS are allowed (guard against destructive API
+    calls). Raises AnkiConnectError if Anki/AnkiConnect is unreachable or the
+    response envelope carries a non-null `error`.
     """
+    if action not in SAFE_ACTIONS and not os.environ.get("ANKICONNECT_ALLOW_UNSAFE"):
+        raise AnkiConnectError(
+            f"Action '{action}' is not on this tool's safe list "
+            f"({', '.join(sorted(SAFE_ACTIONS))}). Destructive AnkiConnect actions "
+            "are deliberately locked; set ANKICONNECT_ALLOW_UNSAFE=1 only if you "
+            "know exactly what you are doing."
+        )
     payload = json.dumps({"action": action, "version": 6, "params": params}).encode("utf-8")
     req = urllib.request.Request(URL, data=payload, headers={"Content-Type": "application/json"})
     try:
@@ -74,10 +100,83 @@ def ping():
     return result
 
 
-def push(apkg_path):
-    """Imports a built .apkg into Anki's collection (importPackage)."""
+def _apkg_to_cards():
+    """The sibling apkg_to_cards module (same tools/ folder, lazy import)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import apkg_to_cards
+    return apkg_to_cards
+
+
+BACKUP_DIR = os.path.join("decks", "_anki-backups")
+BACKUP_KEEP = 10
+
+
+def _decks_in_apkg(apkg_path):
+    """Deck names that actually hold cards in the .apkg (what a push touches).
+    Deliberately ignores card-less deck entries (e.g. the 'Default' stub
+    genanki writes into every package)."""
+    atc = _apkg_to_cards()
+    con, tmp = atc.open_collection(apkg_path)
+    try:
+        _ntype, decks, _schema = atc._maps(con)
+        dids = {row[0] for row in con.execute("SELECT DISTINCT did FROM cards")}
+    finally:
+        con.close()
+        os.unlink(tmp)
+    return {decks[d] for d in dids if d in decks}
+
+
+def _covering(deck_names):
+    """Minimal covering set: drops decks whose ancestor is also in the set
+    (exporting a parent deck already includes its subdecks)."""
+    names = set(deck_names)
+    return sorted(
+        name for name in names
+        if not any("::".join(name.split("::")[:i]) in names
+                   for i in range(1, len(name.split("::"))))
+    )
+
+
+def _prune_backups(keep=BACKUP_KEEP):
+    """Keeps only the newest `keep` timestamped backup folders."""
+    if not os.path.isdir(BACKUP_DIR):
+        return
+    stamps = sorted(d for d in os.listdir(BACKUP_DIR)
+                    if os.path.isdir(os.path.join(BACKUP_DIR, d)))
+    for d in stamps[:-keep] if keep else stamps:
+        shutil.rmtree(os.path.join(BACKUP_DIR, d))
+
+
+def _backup_decks(deck_names):
+    """Exports decks (WITH scheduling) into a timestamped backup folder.
+    Restore = push the backup .apkg again (GUIDs -> notes revert)."""
+    outdir = os.path.join(BACKUP_DIR, time.strftime("%Y%m%d-%H%M%S"))
+    os.makedirs(outdir, exist_ok=True)
+    for deck in deck_names:
+        path = os.path.join(outdir, _safe_name(deck) + ".apkg")
+        invoke("exportPackage", deck=deck, path=os.path.abspath(path), includeSched=True)
+        print(f"Backup: '{deck}' -> {path}")
+    _prune_backups()
+    return outdir
+
+
+def push(apkg_path, backup=True):
+    """Imports a built .apkg into Anki's collection (importPackage).
+
+    Safety net: same-GUID notes get their fields OVERWRITTEN by the import, so
+    by default every deck that exists in Anki AND is part of the package is
+    exported to decks/_anki-backups/<timestamp>/ first (gitignored, newest
+    10 kept). Disable consciously with backup=False / --no-backup.
+    """
     if not os.path.isfile(apkg_path):
         raise FileNotFoundError(apkg_path)
+    if backup:
+        existing = set(invoke("deckNames"))
+        affected = _covering(_decks_in_apkg(apkg_path) & existing)
+        if affected:
+            _backup_decks(affected)
+        else:
+            print("Backup: no existing deck affected, nothing to save.")
     invoke("importPackage", path=os.path.abspath(apkg_path))
     print(f"OK: imported {apkg_path} into Anki.")
 
@@ -107,17 +206,15 @@ def _safe_name(deck_name):
 
 
 def _decode_apkg(apkg_path, outdir):
-    """apkg -> cards.json via apkg_to_cards (same tools/ folder, lazy import)."""
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import apkg_to_cards
-
-    con, tmp = apkg_to_cards.open_collection(apkg_path)
+    """apkg -> cards.json via apkg_to_cards."""
+    atc = _apkg_to_cards()
+    con, tmp = atc.open_collection(apkg_path)
     try:
-        by_deck, warnings = apkg_to_cards.extract(con)
+        by_deck, warnings = atc.extract(con)
     finally:
         con.close()
         os.unlink(tmp)
-    files = apkg_to_cards.write_cards_json(by_deck, outdir)
+    files = atc.write_cards_json(by_deck, outdir)
     return files, warnings
 
 
@@ -171,6 +268,8 @@ def main(argv):
 
     p_push = sub.add_parser("push", help="import a built .apkg into Anki")
     p_push.add_argument("apkg", help="path to the .apkg to import")
+    p_push.add_argument("--no-backup", action="store_true",
+                        help="skip the automatic backup of affected decks")
 
     p_export = sub.add_parser("export", help="export a deck to .apkg (with scheduling)")
     p_export.add_argument("deck", help="Anki deck name, e.g. 'Biology::Respiration'")
@@ -189,7 +288,7 @@ def main(argv):
         if args.cmd == "ping":
             ping()
         elif args.cmd == "push":
-            push(args.apkg)
+            push(args.apkg, backup=not args.no_backup)
         elif args.cmd == "export":
             export(args.deck, args.out)
         elif args.cmd == "sync":
