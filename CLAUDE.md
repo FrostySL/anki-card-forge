@@ -1,289 +1,306 @@
-# Anki-Karten — Projekt-Anleitung (für Claude)
+# Anki-Karten — project guide (for Claude)
 
-Dieses Projekt erzeugt **Anki-Karteikarten aus Quelldateien**.
-**Claude (ich) bin die KI**, die die Karten inhaltlich erstellt — es gibt **keinen**
-externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
-„Karten-JSON → `.apkg`" über die Lib `genanki`.
+This project turns **source files into Anki flashcards**.
+**Claude (me) is the AI** that authors the card content — there is **no**
+external LLM call and no API key. Docker only does the dumb
+"card JSON → `.apkg`" part via the `genanki` library.
 
-## Ordner
+## Card language
 
-| Ordner | Zweck |
+**Cards are written in the language of the source material by default** (that is
+also what the `card-authoring` skill's retrieval rules assume). If the user asks
+for a different language — e.g. *"make the cards in German"*, *"cartes en
+français"* — write all card text (fronts, backs, explanations) in that language
+and keep domain terms as the source uses them. The user can simply say so in the
+chat; nothing needs to be configured. For scanned PDFs, pass the matching OCR
+language to the extractor (`./tools/extract.sh … --lang eng+fra`; add missing
+Tesseract language packs in `Dockerfile.extract`).
+
+## Folders
+
+| Folder | Purpose |
 |---|---|
-| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/Biologie/`, `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** (Groß-/Kleinschreibung bzw. `Kontext.md` tolerieren — im Zweifel `ls quellen/<Thema>/`) mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
-| `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/Biologie/`). |
-| `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Dazu pro Datei ein **`<name>.figures.md`** (Abbildungs-Index: „Abb. N – S. P: Titel"); Seitenmarker zeigen die Bildzahl (`<!-- S. 12 · 2 Abb. -->`). **Bilder selbst sind nicht im `.md`** — entweder die echte Seite via Read-Tool am PDF ansehen (`pages="<S.>"`) **oder** die per `figextract.sh` geschnittenen Crops unter **`figures/<name>_S<Seite>_<i>.png`** nutzen (Manifest `<name>.figures.json`: Seite, Bbox 0..1, Art). Gitignored (abgeleitet, reproduzierbar). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `figextract.py`/`figextract.sh` (Abbildungen aus PDF schneiden → PNG-Crops), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Struktur-Check), `grounding_check.py` (Karten gegen Quelltext prüfen), `coverage.py` (Dubletten + Abdeckung über alle cards.json), `validate.py`/`validate.sh` (echte Anki-Engine), `apkg_to_cards.py` (`.apkg` → `cards.json` zurück, **GUIDs erhalten** — für Änderungen an bereits gelernten Decks ohne Fortschrittsverlust). **Orchestratoren:** `prep.sh` (extract+figindex+figextract in einem), `finish.sh` (lint+grounding[+coverage]+build+validate; auch mehrere cards.json → eine .apkg). **Tests:** `test.sh` (`tests/`, stdlib-`unittest` der Logik-Tools — kein Docker, kein pip; `./tools/test.sh`). |
-| `.githooks/` | **Commit-Guard** (`pre-commit`): Das Repo ist **öffentlich** — der Hook blockiert Commits, die persönliches Material hinzufügen würden (quellen/, aufbereitet/, decks/-Inhalte, PDFs/.apkg), auch bei `git add -f`. Aktiv via `git config core.hooksPath .githooks` (einmal pro Clone). Blockiert er zu Unrecht: Allowlist im Hook erweitern, nicht blind `--no-verify`. |
-| `reference/` | **Lokale** Anki-Nachschlagewerke (Handbuch + Quellcode), **nicht im Repo** (fremde Lizenz/AGPL) — optional lokal klonen, siehe `reference/README.md`. |
-| `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). Falls lokal vorhanden. |
-| `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**, falls lokal vorhanden. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
+| `sources/<topic>/` | Sources **per topic** in their own subfolder (e.g. `sources/Biology/`, `sources/Math/`, `sources/SoftwareEngineering/`). PDFs/texts/Markdown. Optionally a **`context.md`** (tolerate other spellings/languages, e.g. `Kontext.md` — when in doubt `ls sources/<topic>/`) with context about the topic (what it is, why it's needed, focus, exam relevance) — read it **before** building cards. |
+| `decks/<topic>/` | Mirrors the topics: generated `.cards.json` **and** `.apkg` live in the same topic folder (e.g. `decks/Biology/`). |
+| `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). This is where I read/cite efficiently instead of from the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF via the Read tool (`pages="<p>"`) **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.png`** (manifest `<name>.figures.json`: page, bbox 0..1, kind). Gitignored (derived, reproducible). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs preserved** — for changing already-learned decks without losing progress). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
+| `.githooks/` | **Commit guard** (`pre-commit`): the repo is **public** — the hook blocks commits that would add personal material (sources/, extracted/, decks/ content, PDFs/.apkg), even with `git add -f`. Active via `git config core.hooksPath .githooks` (once per clone). If it blocks wrongly: extend the allowlist in the hook, don't blindly `--no-verify`. |
+| `reference/` | **Local** Anki reference works (manual + source code), **not in the repo** (third-party license/AGPL) — optionally clone locally, see `reference/README.md`. |
+| `reference/anki-manual/` | Official Anki manual as a reference (don't touch). If present locally. |
+| `reference/anki/` | Anki source code (shallow clone) as a reference — **read only**, if present locally. Has its own `CLAUDE.md`/`AGENTS.md`; those are Anki's dev notes, not for this project. Native image-occlusion format: `rslib/src/image_occlusion/imageocclusion.rs`. |
 
-## Workflow, wenn der Nutzer Karten will
+## Workflow when the user wants cards
 
-**Konvention: pro Themengebiet ein Unterordner.** Quellen in `quellen/<Thema>/`,
-erzeugte Karten/Pakete in `decks/<Thema>/`. Der **Deckname** beginnt mit dem Thema,
-damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
-`"Biologie::Zellatmung"`).
+**Convention: one subfolder per topic.** Sources in `sources/<topic>/`, generated
+cards/packages in `decks/<topic>/`. The **deck name** starts with the topic so
+Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
+`"Biology::Cellular respiration"`).
 
-1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/Biologie/zellatmung.pdf`).
-   **Liegt eine `quellen/<Thema>/context.md` (oder anders geschrieben, z. B.
-   `Kontext.md`) vor, zuerst diese lesen** — sie sagt, worum es geht und worauf der
-   Fokus liegt; das steuert Auswahl und Schwerpunkt der Karten.
-2. **Quelle aufbereiten** (einmal pro neuer Datei): PDF → maschinenlesbares Markdown
-   **und** Abbildungen schneiden — in einem Schritt:
+1. The source file is in `sources/<topic>/` (e.g. `sources/Biology/cellular_respiration.pdf`).
+   **If a `sources/<topic>/context.md` exists (any spelling, e.g. `Kontext.md`),
+   read it first** — it says what the topic is about and where the focus lies;
+   that steers selection and emphasis of the cards.
+2. **Prepare the source** (once per new file): PDF → machine-readable Markdown
+   **and** crop the figures — in one step:
    ```bash
-   ./tools/prep.sh quellen/<Thema>/<name>.pdf        # oder: quellen/<Thema>/ (ganzer Ordner)
+   ./tools/prep.sh sources/<topic>/<name>.pdf        # or: sources/<topic>/ (whole folder)
    ```
-   `prep.sh` bündelt `extract.sh` (→ `.md` + `figindex.py` → `.figures.md`) und
-   `figextract.sh` (→ `figures/<name>_S*.png` + `<name>.figures.json`). Ergebnis:
-   `aufbereitet/<Thema>/<name>.md` (Seitenmarker `<!-- S. N -->`; gescannte Seiten
-   per OCR erkannt und als `(OCR)` markiert). **Danach aus dem `.md` lesen** — das ist
-   effizienter (greppbar, billiger, exakt zitierbar) als das PDF als Bild zu laden.
-   Bei `(OCR)`-Seiten Zitate gegen das Original-PDF gegenprüfen. Seiten werden
-   **parallel** verarbeitet (alle CPU-Kerne); Einzelschritte gehen weiter mit
-   `./tools/extract.sh` (`-j N` begrenzt, `--lang` für andere OCR-Sprachen) bzw.
-   `./tools/figextract.sh` (`--min-area`/`--zoom` justieren).
-3. **Lies** das `.md` (Read-Tool); bei Bedarf gezielt Abschnitte/Seiten nachschlagen.
-   **Bild-Check:** Das `.md` enthält **keine Bilder**, nur Captions. Schau in
-   `<name>.figures.md` (bzw. die `· N Abb.`-Marker), wo Abbildungen liegen. Ist ein
-   Konzept **räumlich-visuell** (Diagramm, Graph, Schema) oder trägt das Bild Info,
-   die der Text nicht hergibt → **billig den geschnittenen Crop** unter
-   `aufbereitet/<Thema>/figures/<name>_S<S.>_*.png` mit dem Read-Tool ansehen (statt
-   die ganze PDF-Seite zu laden) und entscheiden, ob eine `occlusion`-/Bildkarte nötig
-   ist. Fehlt ein Crop (Vektor nicht erkannt) → Original-PDF-Seite ansehen
-   (`pages="<S.>"`). So wird kein Bild übersehen.
-4. **Erstelle** die Karten (Skill `kartenbau` befolgen!) und schreibe sie als JSON
-   nach `decks/<Thema>/<name>.cards.json` (Format unten).
-5. **Baue** das Paket:
+   `prep.sh` bundles `extract.sh` (→ `.md` + `figindex.py` → `.figures.md`) and
+   `figextract.sh` (→ `figures/<name>_p*.png` + `<name>.figures.json`). Result:
+   `extracted/<topic>/<name>.md` (page markers `<!-- p. N -->`; scanned pages
+   detected via OCR and marked `(OCR)`). **Then read from the `.md`** — that is
+   more efficient (greppable, cheaper, precisely citable) than loading the PDF as
+   images. For `(OCR)` pages, double-check quotes against the original PDF. Pages
+   are processed **in parallel** (all CPU cores); individual steps remain available
+   via `./tools/extract.sh` (`-j N` to limit, `--lang` for other OCR languages) and
+   `./tools/figextract.sh` (tune `--min-area`/`--zoom`).
+3. **Read** the `.md` (Read tool); look up sections/pages as needed.
+   **Image check:** the `.md` contains **no images**, only captions. Check
+   `<name>.figures.md` (or the `· N fig.` markers) for where figures live. If a
+   concept is **spatial/visual** (diagram, graph, schematic) or the image carries
+   information the text does not → **cheaply view the cropped figure** under
+   `extracted/<topic>/figures/<name>_p<page>_*.png` with the Read tool (instead of
+   loading the whole PDF page) and decide whether an `occlusion`/image card is
+   needed. If a crop is missing (vector not detected) → view the original PDF page
+   (`pages="<p>"`). That way no image gets overlooked.
+4. **Create** the cards (follow the `card-authoring` skill!) and write them as JSON
+   to `decks/<topic>/<name>.cards.json` (format below).
+5. **Build** the package:
    ```bash
-   ./tools/build.sh decks/<Thema>/<name>.cards.json
+   ./tools/build.sh decks/<topic>/<name>.cards.json
    ```
-   → erzeugt `decks/<Thema>/<name>.apkg` (Ausgabe landet neben der `.cards.json`).
-   (Image fehlt? `docker build -t anki-karten .`)
+   → produces `decks/<topic>/<name>.apkg` (output lands next to the `.cards.json`).
+   (Image missing? `docker build -t anki-cards .`)
 
-   **Mehrere Dateien in EINE .apkg** bündeln (jede Datei = eigenes Deck; `::` im
-   Decknamen erzeugt Unterdecks) — z. B. ein ganzes Thema in eine Datei:
+   **Bundle several files into ONE .apkg** (each file = its own deck; `::` in the
+   deck name creates subdecks) — e.g. a whole topic into one file:
    ```bash
-   ./tools/build.sh decks/Biologie/teil1.cards.json decks/Biologie/teil2.cards.json decks/Biologie/Biologie-komplett.apkg
+   ./tools/build.sh decks/Biology/part1.cards.json decks/Biology/part2.cards.json decks/Biology/Biology-complete.apkg
    ```
-6. Sag dem Nutzer, dass `decks/<Thema>/<name>.apkg` fertig ist
-   → in Anki per **Datei → Importieren** oder Doppelklick laden.
+6. Tell the user that `decks/<topic>/<name>.apkg` is ready
+   → load in Anki via **File → Import** or double-click.
 
-## Bestehendes/gelerntes Deck ändern — OHNE Lernfortschritt zu verlieren
+## Changing an existing/learned deck — WITHOUT losing progress
 
-Wenn der Nutzer Karten **schon in Anki gelernt** (oder dort bearbeitet) hat und du sie
-trotzdem ändern sollst: Lernfortschritt (Scheduling/Reviews) hängt an der Notiz-**GUID**.
-Die `.cards.json` im Repo ist dann veraltet — **nicht** daraus neu bauen. Stattdessen:
+If the user has **already learned** the cards in Anki (or edited them there) and
+you are asked to change them anyway: learning progress (scheduling/reviews) hangs
+off the note **GUID**. The `.cards.json` in the repo is stale then — do **not**
+rebuild from it. Instead:
 
-1. Nutzer in Anki exportieren lassen: **Datei → Exportieren → `.apkg`** (mit Scheduling),
-   gewünschtes Deck.
-2. **Zurück nach `cards.json`** (GUIDs werden übernommen):
+1. Have the user export in Anki: **File → Export → `.apkg`** (with scheduling),
+   the desired deck.
+2. **Back to `cards.json`** (GUIDs are carried over):
    ```bash
-   python3 tools/apkg_to_cards.py <export>.apkg -o decks/<Thema>/<name>_rebuild
+   python3 tools/apkg_to_cards.py <export>.apkg -o decks/<topic>/<name>_rebuild
    ```
-   Erkennt modernes (zstd) und Legacy-Format; je Deck eine `cards.json`. Läuft auf dem
-   Host (stdlib + zstd), **kein Docker**.
-3. Die `cards.json` editieren (Struktur/HTML — Skill `kartenbau`). **Cloze:** dieselben
-   `{{cN::…}}` (Nummer + Antwort) **byte-identisch** lassen → Karten-Ord = cN−1 bleibt,
-   Scheduling passt weiter. Tokens am besten programmatisch aus dem Original übernehmen
-   und nur das Drumherum (Tabelle/Liste) neu setzen, dann verifizieren, dass die
-   Token-Menge gleich ist. **Die ausgelesenen Felder enthalten die „Vertiefung & Quelle"-
-   Box schon eingebacken** → nicht zusätzlich `explanation`/`source` setzen (Doppel-Box).
-4. **Neu bauen** (GUIDs ⇒ Fortschritt bleibt): `./tools/build.sh decks/<Thema>/<name>_rebuild/*.cards.json "<Titel> (umstrukturiert).apkg"`.
-5. **Prüfen:** Bau-GUIDs == Export-GUIDs (Menge identisch), Kartenzahl unverändert,
-   `validate.sh` (0 Fehler). Bei CSS-/Struktur-Änderungen zusätzlich `preview.sh`.
-6. Nutzer importiert: **„Notizen aktualisieren"**, Scheduling **nicht** zurücksetzen.
-   Reine **CSS-Änderungen** (Notiztyp-Styling) aktualisiert der Import oft nicht →
-   alternativ die CSS einmal in *Notiztypen verwalten → Karten → Styling* einfügen
-   (kein Re-Import nötig, Inhalt/Fortschritt unberührt).
+   Detects the modern (zstd) and legacy formats; one `cards.json` per deck. Runs
+   on the host (stdlib + zstd), **no Docker**.
+3. Edit the `cards.json` (structure/HTML — `card-authoring` skill). **Cloze:** keep
+   the same `{{cN::…}}` (number + answer) **byte-identical** → card ord = cN−1
+   stays, scheduling keeps fitting. Best to carry the tokens over programmatically
+   from the original and only re-set the surroundings (table/list), then verify the
+   token set is unchanged. **The extracted fields already contain the "details &
+   source" box baked in** → do not additionally set `explanation`/`source`
+   (double box).
+4. **Rebuild** (GUIDs ⇒ progress kept): `./tools/build.sh decks/<topic>/<name>_rebuild/*.cards.json "<Title> (restructured).apkg"`.
+5. **Verify:** build GUIDs == export GUIDs (same set), card count unchanged,
+   `validate.sh` (0 errors). For CSS/structure changes also `preview.sh`.
+6. The user imports: **"Update notes"**, do **not** reset scheduling.
+   Pure **CSS changes** (note type styling) are often not applied by the import →
+   alternatively paste the CSS once into *Manage note types → Cards → Styling*
+   (no re-import needed, content/progress untouched).
 
-## Feedbackloop: Karten vor dem Export selbst prüfen
+## Feedback loop: check the cards yourself before handing them over
 
-Bevor du eine `.apkg` als „fertig" meldest — besonders bei **Image-Occlusion**, wo
-die Boxen per Auge platziert sind — prüfe das Ergebnis:
+Before reporting an `.apkg` as "done" — especially with **image occlusion**,
+where the boxes are placed by eye — check the result:
 
-1. **Inhalt schnell linten** (reines Python, kein Docker nötig):
+1. **Lint the content quickly** (pure Python, no Docker needed):
    ```bash
    python3 tools/lint_cards.py decks/<name>.cards.json
    ```
-   Meldet leere Felder, fehlende Lücken, Occlusion-Koordinaten außerhalb 0..1,
-   doppelte Fragen usw.
-1b. **Grounding prüfen** (Anti-Halluzination, reines Python): stehen die Antworten
-   wirklich im Quelltext, stimmen zitierte Seiten?
+   Reports empty fields, missing deletions, occlusion coordinates outside 0..1,
+   duplicate questions, unknown/typo fields, etc.
+1b. **Check grounding** (anti-hallucination, pure Python): are the answers really
+   in the source text, are cited pages correct?
    ```bash
-   python3 tools/grounding_check.py decks/<Thema>/<name>.cards.json
+   python3 tools/grounding_check.py decks/<topic>/<name>.cards.json
    ```
-   FEHLER = Antwort kaum im Quelltext (evtl. erfunden); Warnung = nur teils gedeckt
-   (z. B. fremdsprachiger Term) → gegen die Quelle prüfen. Heuristik: Warnungen sind
-   ein „nachsehen", kein Beweis. Quelle wird automatisch aus dem Dateinamen abgeleitet
-   (sonst `--source <md|ordner>`).
-1c. **Abdeckung & Dubletten** über ein ganzes Thema (wenn mehrere `cards.json`):
+   ERROR = answer barely in the source text (possibly invented); warning = only
+   partly covered (e.g. a foreign-language term) → verify against the source.
+   Heuristic: warnings mean "have a look", not proof. The source is derived
+   automatically from the file name (otherwise `--source <md|folder>`).
+1c. **Coverage & duplicates** across a whole topic (when several `cards.json`):
    ```bash
-   python3 tools/coverage.py decks/<Thema>/
+   python3 tools/coverage.py decks/<topic>/
    ```
-   Zeigt Beinah-Dubletten über Dateigrenzen (was `lint_cards.py` nicht sieht) und —
-   sofern Karten `source: "… S. N"` tragen — welche Quellseiten noch keine Karte haben.
-2. **Darstellung rendern** (headless Chromium, gleiches HTML wie im .apkg):
+   Shows near-duplicates across file boundaries (which `lint_cards.py` cannot see)
+   and — if cards carry `source: "… p. N"` — which source pages have no card yet.
+2. **Render the appearance** (headless Chromium, same HTML as in the .apkg):
    ```bash
-   ./tools/preview.sh decks/<name>.cards.json          # Default: hell UND Nachtmodus
-   ./tools/preview.sh decks/<name>.cards.json --theme light   # nur hell (schneller)
+   ./tools/preview.sh decks/<name>.cards.json          # default: light AND night mode
+   ./tools/preview.sh decks/<name>.cards.json --theme light   # light only (faster)
    ```
-   → `decks/preview/<name>/NN-<typ>-front.png` + `-back.png` (hell) **und**
-   `…-front-dark.png` + `…-back-dark.png` (Anki-Nachtmodus) + `index.html`.
-3. **PNGs mit dem Read-Tool ansehen — hell UND dunkel.** Prüfe: Decken die
-   Occlusion-Masken die richtigen Stellen? Zeigt die Rückseite das richtige Label?
-   Layout ok? **Im Nachtmodus lesbar** (heller Text, Kontrast)? Der Nachtmodus deckt
-   genau die Fehler auf, die im Hellmodus unsichtbar sind (harte Farben → dunkel auf
-   dunkel) — deshalb standardmäßig beide.
-4. Sitzt etwas daneben → Koordinaten/Texte in `decks/<name>.cards.json` anpassen,
-   dann erneut **preview** (und am Ende **build**). Schleife, bis es passt.
-5. **In der echten Anki-Engine validieren** (importiert + rendert jede Karte mit
-   Ankis Backend, ohne GUI — stärker als die Vorschau-Emulation):
+   → `decks/preview/<name>/NN-<type>-front.png` + `-back.png` (light) **and**
+   `…-front-dark.png` + `…-back-dark.png` (Anki night mode) + `index.html`.
+3. **View the PNGs with the Read tool — light AND dark.** Check: do the occlusion
+   masks cover the right spots? Does the back show the right label? Layout ok?
+   **Readable in night mode** (light text, contrast)? Night mode exposes exactly
+   the mistakes that are invisible in light mode (hard-coded colors → dark on
+   dark) — hence both by default.
+4. Something misplaced → adjust coordinates/text in `decks/<name>.cards.json`,
+   then **preview** again (and **build** at the end). Loop until it fits.
+5. **Validate in the real Anki engine** (imports + renders every card with Anki's
+   backend, no GUI — stronger than the preview emulation):
    ```bash
    ./tools/validate.sh decks/<name>.apkg
    ```
-   Exit 0 = Import ok, keine Render-Fehler, keine leeren Karten. Bei Problemen
-   meldet es Notiztyp + Karte.
+   Exit 0 = import ok, no render errors, no empty cards. On problems it reports
+   note type + card.
 
-**Abkürzung:** `./tools/finish.sh decks/<Thema>/<name>.cards.json` macht 1 + 1b +
-Build + Validate in einem Rutsch (Lint ist ein Gate; Grounding nur Hinweis). Mehrere
-`cards.json` (plus Ziel-`.apkg`, dann Pflicht) bündeln in EINE Datei und laufen
-zusätzlich durch 1c (`coverage.py`):
-`./tools/finish.sh decks/<Thema>/*.cards.json decks/<Thema>/<Thema>-komplett.apkg`. Bei
-Occlusion-Karten zusätzlich `preview.sh` und die PNGs ansehen (Schritte 2–4).
+**Shortcut:** `./tools/finish.sh decks/<topic>/<name>.cards.json` does 1 + 1b +
+build + validate in one go (lint is a gate; grounding only a hint). Several
+`cards.json` (plus a target `.apkg`, then mandatory) are bundled into ONE file
+and additionally run through 1c (`coverage.py`):
+`./tools/finish.sh decks/<topic>/*.cards.json decks/<topic>/<topic>-complete.apkg`.
+For occlusion cards, additionally run `preview.sh` and look at the PNGs (steps 2–4).
 
-> Das Vorschau-Image (`anki-karten-preview`) ist groß (Chromium) und wird beim
-> ersten `preview.sh`-Aufruf automatisch gebaut. Das schlanke Builder-Image bleibt
-> davon unberührt.
+> The preview image (`anki-cards-preview`) is large (Chromium) and is built
+> automatically on the first `preview.sh` call. The slim builder image is
+> unaffected by that.
 
-## Karten-JSON-Format
+## Card JSON format
 
 ```json
 {
-  "deck": "Biologie::Kapitel 3 - Zellatmung",
+  "deck": "Biology::Chapter 3 - Cellular respiration",
   "cards": [
     {
       "type": "basic",
-      "front": "Wo in der Zelle findet die Zellatmung statt?",
-      "back": "In den Mitochondrien.",
-      "tags": ["bio", "zellatmung"]
+      "front": "Where in the cell does cellular respiration take place?",
+      "back": "In the mitochondria.",
+      "tags": ["bio", "respiration"]
     },
     {
       "type": "cloze",
-      "text": "Die Glykolyse läuft im {{c1::Zytoplasma}} ab und liefert netto {{c2::2 ATP}}.",
-      "extra": "Vorstufe der Zellatmung, sauerstoffunabhängig.",
-      "tags": ["bio", "zellatmung"]
+      "text": "Glycolysis runs in the {{c1::cytoplasm}} and yields a net {{c2::2 ATP}}.",
+      "extra": "Precursor of cellular respiration, oxygen-independent.",
+      "tags": ["bio", "respiration"]
     }
   ]
 }
 ```
 
-- `deck`: Deckname. `::` erzeugt Unterdecks in Anki.
-- `type`: `"basic"` (Front/Back), `"cloze"` (Lückentext mit `{{c1::...}}`),
-  `"typein"` (Antwort eintippen, Anki prüft) oder `"occlusion"` (Bild mit
-  verdeckten Bereichen, siehe unten).
-- `extra` (cloze/occlusion) und `tags` sind optional.
-- **Alle Textfelder werden als HTML gerendert** (kein Escaping): zum Strukturieren
-  `<br>` (Umbruch — ein bloßes `\n` wirkt NICHT), `<ul>/<ol>`, `<table>` nutzen.
-  Struktur erhöht die Lesbarkeit, nicht die Faktenzahl pro Karte (Atomarität bleibt).
-- Optional `guid` pro Karte: stabile Anki-Notiz-GUID. Damit aktualisiert ein erneuter
-  Import eine **bereits gelernte** Notiz statt sie zu duplizieren → **Lernfortschritt
-  bleibt erhalten**. Nutzen, wenn man Inhalte aus einem Anki-Export neu aufbereitet
-  (GUIDs aus dem Export übernehmen, Felder ändern). Ohne `guid`: genanki leitet sie
-  wie gehabt aus den Feldern ab (geänderter Text ⇒ neue GUID ⇒ Fortschritt weg).
+- `deck`: deck name. `::` creates subdecks in Anki.
+- `type`: `"basic"` (front/back), `"cloze"` (cloze text with `{{c1::...}}`),
+  `"typein"` (type the answer, Anki checks) or `"occlusion"` (image with hidden
+  regions, see below).
+- `extra` (cloze/occlusion) and `tags` are optional.
+- **All text fields are rendered as HTML** (no escaping): to structure, use
+  `<br>` (line break — a bare `\n` does NOT work), `<ul>/<ol>`, `<table>`.
+  Structure improves readability, not the fact count per card (atomicity stays).
+- Optional `guid` per card: stable Anki note GUID. With it, a re-import updates an
+  **already learned** note instead of duplicating it → **learning progress is
+  preserved**. Use when reworking content from an Anki export (take the GUIDs from
+  the export, change the fields). Without `guid`: genanki derives it from the
+  fields as usual (changed text ⇒ new GUID ⇒ progress gone).
 
-## Kartentypen im Detail
+## Card types in detail
 
-- **basic** — `front`, `back`. Mit `"reverse": true` werden **beide** Richtungen
-  erzeugt (Vor- und Rückrichtung, eine Notiz → zwei Karten) — gut für Begriff ↔
-  Definition / Vokabeln.
-- **typein** — `front`, `back`. Du tippst die Antwort, Anki vergleicht sie. Nur für
-  **exakte, kurze** Antworten (Begriffe, Schreibweisen, Abkürzungen).
-- **cloze** — `text` mit `{{c1::Lücke}}`, optional `{{c1::Lücke::Hinweis}}`;
-  mehrere `c1/c2/...` → mehrere Karten.
-- **occlusion** — Bild mit verdeckten Bereichen (siehe unten).
+- **basic** — `front`, `back`. With `"reverse": true`, **both** directions are
+  generated (forward and reverse, one note → two cards) — good for term ↔
+  definition / vocabulary.
+- **typein** — `front`, `back`. You type the answer, Anki compares it. Only for
+  **exact, short** answers (terms, spellings, abbreviations).
+- **cloze** — `text` with `{{c1::deletion}}`, optionally `{{c1::deletion::hint}}`;
+  several `c1/c2/...` → several cards.
+- **occlusion** — image with hidden regions (see below).
 
-### Vertiefung & Quelle (Klappbox) — auf JEDER Karte möglich
+### Details & source (collapsed box) — possible on EVERY card
 
-Zwei optionale Felder an **jeder** Karte:
-- `explanation` — tiefere Erklärung / Zusammenhang („warum"). Darf HTML enthalten.
-- `source` — Herkunft/Beleg, z. B. `"Cockburn 2005; Skript S. 3"`.
+Two optional fields on **every** card:
+- `explanation` — deeper explanation / relationship ("why"). May contain HTML.
+- `source` — origin/evidence, e.g. `"Cockburn 2005; script p. 3"`.
 
-Beide erscheinen **nur auf der Rückseite** in einer **standardmäßig zugeklappten**
-Box („▸ Vertiefung & Quelle"). Wichtig (lernpsychologisch): zugeklappt + nach dem
-Abruf = elaboratives Feedback, ohne die Frage zu erleichtern. Also **nicht** den
-Antwort-Kern dort verstecken — die Box ergänzt, sie ersetzt die Antwort nicht.
+Both appear **only on the back** in a box that is **collapsed by default**
+("▸ Details & source"). Important (learning psychology): collapsed + after the
+retrieval = elaborative feedback without making the question easier. So do
+**not** hide the core answer in there — the box supplements, it does not replace
+the answer.
 
 ```json
 { "type": "basic", "front": "...", "back": "...",
-  "explanation": "Kurz, warum/Zusammenhang.", "source": "Autor Jahr; Skript S. X" }
+  "explanation": "Briefly, why/context.", "source": "Author year; script p. X" }
 ```
 
-## Image Occlusion ("Bild mit verdeckten Bereichen")
+## Image occlusion ("image with hidden regions")
 
-Eigener, selbst-gerenderter Kartentyp (HTML/CSS-Overlay über dem Bild — läuft in
-jeder Anki-Version, unabhängig von Ankis internem IO-Format). Pro Bereich (`region`)
-wird **eine Karte** erzeugt.
+Own, self-rendered card type (HTML/CSS overlay on top of the image — works in
+every Anki version, independent of Anki's internal IO format). Each region
+produces **one card**.
 
 ```json
 {
   "type": "occlusion",
-  "image": "quellen/herz.png",
+  "image": "sources/heart.png",
   "mode": "hide-one",
-  "header": "Beschrifte das Herz",
-  "extra": "<i>Aus: Anatomie-Skript S. 12</i>",
+  "header": "Label the heart",
+  "extra": "<i>From: anatomy script p. 12</i>",
   "regions": [
-    {"label": "Aorta",            "x": 0.30, "y": 0.10, "w": 0.12, "h": 0.06},
-    {"label": "linke Herzkammer", "x": 0.55, "y": 0.60, "w": 0.18, "h": 0.10}
+    {"label": "Aorta",          "x": 0.30, "y": 0.10, "w": 0.12, "h": 0.06},
+    {"label": "Left ventricle", "x": 0.55, "y": 0.60, "w": 0.18, "h": 0.10}
   ],
-  "tags": ["anatomie", "herz"]
+  "tags": ["anatomy", "heart"]
 }
 ```
 
-- `image`: Pfad **relativ zum Projekt-Root** (z. B. `quellen/herz.png`). Das Bild
-  wird automatisch ins `.apkg` eingebettet. **Folien-Abbildungen** haben keine eigene
-  Datei → vorher `figextract.sh` laufen lassen und auf den geschnittenen Crop zeigen
-  (`aufbereitet/<Thema>/figures/<name>_S<Seite>_<i>.png`).
-- `mode`: `"hide-one"` (nur der gesuchte Bereich ist verdeckt, Rest sichtbar) oder
-  `"hide-all"` (alle verdeckt, beim Aufdecken wird nur der gesuchte gezeigt).
-- `regions`: Liste der Bereiche. **Koordinaten als Bruchteil 0..1** (relativ zur
-  Bildgröße): `x`/`y` = obere linke Ecke, `w`/`h` = Breite/Höhe. `label` = die
-  Antwort, die auf der Rückseite erscheint.
+- `image`: path **relative to the project root** (e.g. `sources/heart.png`). The
+  image is embedded into the `.apkg` automatically. **Slide figures** have no
+  standalone file → run `figextract.sh` first and point to the crop
+  (`extracted/<topic>/figures/<name>_p<page>_<i>.png`).
+- `mode`: `"hide-one"` (only the queried region is masked, rest visible) or
+  `"hide-all"` (all masked, on reveal only the queried one is shown).
+- `regions`: list of regions. **Coordinates as fractions 0..1** (relative to the
+  image size): `x`/`y` = top-left corner, `w`/`h` = width/height. `label` = the
+  answer shown on the back.
 
-### So platziere ich (Claude) die Bereiche
+### How I (Claude) place the regions
 
-**Bevorzugt: OCR (pixelgenau).** Bei Bildern mit Textbeschriftungen zuerst die
-exakten Boxen erkennen lassen (bei Folien auf den `figextract`-Crop):
+**Preferred: OCR (pixel-exact).** For images with text labels, first have the
+exact boxes detected (for slides, run it on the `figextract` crop):
 ```bash
-./tools/detect.sh aufbereitet/<Thema>/figures/<name>_S<Seite>_<i>.png   # oder quellen/bild.png
-#                                                  optional: --lang deu+eng --min-conf 45
+./tools/detect.sh extracted/<topic>/figures/<name>_p<page>_<i>.png   # or sources/image.png
+#                                                  optional: --lang eng+deu --min-conf 45
 ```
-→ erzeugt `quellen/bild.labels.json` (erkannte Labels mit Bruchteil-Koordinaten)
-und `quellen/bild.labels.png` (Bild mit nummerierten Boxen). Das annotierte PNG mit
-dem Read-Tool ansehen, die relevanten Labels auswählen und ihre `x/y/w/h` **1:1** in
-die occlusion-`regions` übernehmen (mehrzeilige Labels ggf. zu einer Box vereinen).
+→ produces `sources/image.labels.json` (detected labels with fractional
+coordinates) and `sources/image.labels.png` (image with numbered boxes). View the
+annotated PNG with the Read tool, pick the relevant labels and copy their
+`x/y/w/h` **1:1** into the occlusion `regions` (merge multi-line labels into one
+box if needed).
 
-**Fallback: per Auge.** Wenn OCR ein Label nicht findet (gedrehter/stilisierter Text,
-niedriger Kontrast): Bild mit dem Read-Tool ansehen, Box als Bruchteile (0,0 = oben
-links, 1,1 = unten rechts) schätzen.
+**Fallback: by eye.** If OCR misses a label (rotated/stylized text, low
+contrast): view the image with the Read tool, estimate the box as fractions
+(0,0 = top left, 1,1 = bottom right).
 
-**Immer danach:** mit `./tools/preview.sh` rendern, das PNG ansehen und prüfen, ob
-die Masken sitzen; sonst Koordinaten in der `.cards.json` anpassen und neu rendern.
+**Always afterwards:** render with `./tools/preview.sh`, view the PNG and check
+that the masks sit right; otherwise adjust coordinates in the `.cards.json` and
+re-render.
 
-## Qualitätsregeln für gute Karten
+## Quality rules for good cards
 
-**Vor dem Erstellen von Karten den Skill `kartenbau` befolgen**
-(`.claude/skills/kartenbau/SKILL.md`) — die evidenzbasierte Methodik samt Checkliste.
-Belege/Quellen: `.claude/skills/kartenbau/research.md`.
+**Follow the `card-authoring` skill before creating cards**
+(`.claude/skills/card-authoring/SKILL.md`) — the evidence-based methodology
+including the checklist. Evidence/sources: `.claude/skills/card-authoring/research.md`.
 
-Kernregeln (Kurzfassung, Details im Skill):
-- **Atomar:** eine abrufbare Tatsache pro Karte. Lange Antwort → aufteilen.
-- **Echter Abruf:** eindeutiger, distinkter Cue; produzierbare Antwort; kein Ja/Nein,
-  kein ganzer Satz, kein Hint-Leak; ~90 % lösbar, aber fordernd.
-- **Format nach Wissenstyp:** Basic = Default; Cloze für eingebettete Fakten;
-  Occlusion nur räumlich-visuell; typein nur exakte Schreibung; reverse nur echte
-  Zwei-Wege-Nutzung.
-- **Vertiefung/Quelle** in `explanation`/`source` (zugeklappte Box), **nicht** in den
-  Abruf.
-- **Grounding:** nur was im Quelltext steht (keine Halluzination); bei Unsicherheit
-  Quelle nennen statt raten. **Tags** pro Karte. Nur Lernrelevantes verkarten.
+Core rules (short version, details in the skill):
+- **Atomic:** one retrievable fact per card. Long answer → split.
+- **Real retrieval:** unambiguous, distinct cue; producible answer; no yes/no,
+  no whole sentence, no hint leak; ~90 % solvable but effortful.
+- **Format by knowledge type:** basic = default; cloze for embedded facts;
+  occlusion only spatial/visual; typein only exact spelling; reverse only for
+  genuine two-way use.
+- **Details/source** in `explanation`/`source` (collapsed box), **not** in the
+  retrieval.
+- **Grounding:** only what is in the source text (no hallucination); when unsure,
+  cite the source instead of guessing. **Tags** per card. Only card-worthy,
+  learning-relevant content.

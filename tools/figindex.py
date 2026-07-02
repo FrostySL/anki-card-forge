@@ -1,73 +1,76 @@
 #!/usr/bin/env python3
-"""Erzeugt/aktualisiert einen Abbildungs-Index zu aufbereiteten Markdown-Dateien.
+"""Creates/updates a figure index for extracted Markdown files.
 
-Reines stdlib (kein PyMuPDF/Docker noetig) – laeuft direkt auf dem Host ueber die
-bereits erzeugten aufbereitet/<Thema>/<name>.md. Wird von tools/extract.sh nach der
-Extraktion automatisch aufgerufen, kann aber auch einzeln laufen.
+Pure stdlib (no PyMuPDF/Docker needed) — runs directly on the host over the
+already generated extracted/<topic>/<name>.md. Called automatically by
+tools/extract.sh after extraction, but can also run on its own.
 
-Pro <name>.md:
-  - scannt je Seite die Bildunterschriften ("Abb. N: ...") und ausgelassene Bilder,
-  - schreibt aufbereitet/<Thema>/<name>.figures.md (Liste: Abb. N – S. P: Titel),
-  - ergaenzt die Seitenmarker um die Abbildungszahl: "<!-- S. 21 · 2 Abb. -->".
+Per <name>.md it:
+  - scans each page for figure captions ("Fig. N: ..." / "Abb. N: ...") and
+    omitted images,
+  - writes extracted/<topic>/<name>.figures.md (list: Fig. N — p. P: title),
+  - annotates the page markers with the figure count: "<!-- p. 21 · 2 fig. -->".
 
-So ist beim Kartenbau auf einen Blick sichtbar, wo Bilder liegen. Bei
-raeumlich-visuellen Konzepten dann die echte PDF-Seite ansehen (Read-Tool,
-pages="N") und ggf. eine occlusion-/Bildkarte bauen, statt das Bild zu uebersehen.
+That makes it visible at a glance where images live when building cards. For
+spatial/visual concepts, look at the real PDF page (Read tool, pages="N") or the
+cropped figure and consider an occlusion/image card instead of missing the image.
 
-Idempotent: vorhandene "· N Abb."-Zusaetze werden vor dem Neuschreiben entfernt.
+Idempotent: existing "· N fig." (or legacy "· N Abb.") annotations are removed
+before rewriting. Legacy German markers ("<!-- S. N -->", "(leer)") are accepted.
 
-Aufruf:
-  python3 tools/figindex.py aufbereitet/SWT/        # ganzer Themenordner (rekursiv)
-  python3 tools/figindex.py aufbereitet/SWT/12_MET_Software_Architekturmetriken.md
+Usage:
+  python3 tools/figindex.py extracted/SWT/        # whole topic folder (recursive)
+  python3 tools/figindex.py extracted/SWT/12_MET_Software_Architecture_Metrics.md
 """
 import os
 import re
 import sys
 
-MARKER_RE = re.compile(r"<!--\s*S\.\s*(\d+)([^>]*?)-->")
-CAPTION_RE = re.compile(r"Abb\.\s*(\d+)\s*:\**\s*([^\n]*)")
+MARKER_RE = re.compile(r"<!--\s*(?:p|S)\.\s*(\d+)([^>]*?)-->")
+CAPTION_RE = re.compile(r"(?:Fig|Figure|Abb|Abbildung)\.?\s*(\d+)\s*:\**\s*([^\n]*)")
 OMITTED_RE = re.compile(r"intentionally omitted")
 
 
 def _clean_caption(raw):
-    """Macht aus einer rohen Caption-Zeile einen knappen Titel."""
+    """Turns a raw caption line into a concise title."""
     s = raw
     for cut in ("<br>", "**---", "----- End", "----- Start"):
         idx = s.find(cut)
         if idx != -1:
             s = s[:idx]
-    s = re.split(r"\.{3,}", s, maxsplit=1)[0]  # Punktfuehrung eines Verzeichnis-Eintrags abschneiden
+    s = re.split(r"\.{3,}", s, maxsplit=1)[0]  # cut the dotted leader of a list-of-figures entry
     s = s.replace("*", " ")
     s = re.sub(r"\s+", " ", s).strip(" —–-:")
     return s
 
 
 def _flag(suffix):
-    """Behaelt nur (OCR)/(leer) aus dem alten Marker-Suffix; alte Abb.-Zusaetze fallen weg."""
-    m = re.search(r"\((OCR|leer)\)", suffix)
+    """Keeps only (OCR)/(empty)/(leer) from the old marker suffix; old figure
+    annotations are dropped."""
+    m = re.search(r"\((OCR|empty|leer)\)", suffix)
     return f" ({m.group(1)})" if m else ""
 
 
 def scan(md_text):
-    """-> (annotierter_text, index). index: sortierte Liste (num, seite, caption)."""
+    """-> (annotated_text, index). index: sorted list of (num, page, caption)."""
     markers = list(MARKER_RE.finditer(md_text))
-    index = {}            # num -> (seite, caption); laengste Caption gewinnt
+    index = {}            # num -> (page, caption); longest caption wins
     out = []
     last = 0
     for i, m in enumerate(markers):
-        out.append(md_text[last:m.start()])          # Seiteninhalt davor unveraendert
+        out.append(md_text[last:m.start()])          # page content before stays untouched
         page = int(m.group(1))
         flag = _flag(m.group(2))
         seg = md_text[m.end():(markers[i + 1].start() if i + 1 < len(markers) else len(md_text))]
         figs = {}
         for cm in CAPTION_RE.finditer(seg):
-            if re.search(r"\.{4,}", cm.group(0)):   # Abbildungsverzeichnis-Eintrag (Punktfuehrung) -> kein echtes Bild
+            if re.search(r"\.{4,}", cm.group(0)):   # list-of-figures entry (dotted leader) -> not a real image
                 continue
             num, cap = int(cm.group(1)), _clean_caption(cm.group(2))
             if num not in figs or len(cap) > len(figs[num]):
                 figs[num] = cap
         k = len(figs) + len(OMITTED_RE.findall(seg))
-        out.append(f"<!-- S. {page}{flag}" + (f" · {k} Abb." if k else "") + " -->")
+        out.append(f"<!-- p. {page}{flag}" + (f" · {k} fig." if k else "") + " -->")
         last = m.end()
         for num, cap in figs.items():
             if num not in index or len(cap) > len(index[num][1]):
@@ -86,13 +89,13 @@ def process(md_path):
     fig_path = os.path.splitext(md_path)[0] + ".figures.md"
     if idx:
         lines = [
-            f"# Abbildungen: {os.path.basename(md_path)}",
+            f"# Figures: {os.path.basename(md_path)}",
             "",
-            f"{len(idx)} Abbildungen (S. = Position im aufbereiteten .md). "
-            'Bild ansehen: Read-Tool auf das Original-PDF mit pages="<S.>".',
+            f"{len(idx)} figures (p. = position in the extracted .md). "
+            'To view an image: Read tool on the original PDF with pages="<p>".',
             "",
         ]
-        lines += [f"- **Abb. {num}** — S. {page}: {cap or '(ohne Titel)'}" for num, page, cap in idx]
+        lines += [f"- **Fig. {num}** — p. {page}: {cap or '(untitled)'}" for num, page, cap in idx]
         with open(fig_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
     elif os.path.exists(fig_path):
@@ -113,15 +116,15 @@ def _md_files(path):
 
 def main(argv):
     if not argv:
-        print("Aufruf: figindex.py <aufbereitet/Thema/ | datei.md>", file=sys.stderr)
+        print("Usage: figindex.py <extracted/topic/ | file.md>", file=sys.stderr)
         return 1
     total = 0
     for p in argv:
         for md in _md_files(p):
             n = process(md)
             total += n
-            print(f"{md}: {n} Abbildungen")
-    print(f"Fertig: {total} Abbildungen über alle Dateien.")
+            print(f"{md}: {n} figures")
+    print(f"Done: {total} figures across all files.")
     return 0
 
 

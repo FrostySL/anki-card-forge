@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Schneidet Abbildungen aus Quell-PDFs als PNG heraus – im Extract-Container (PyMuPDF).
+# Crops figures out of source PDFs as PNGs — inside the extract container (PyMuPDF).
 #
-#   ./tools/figextract.sh quellen/SWT/04_UML.pdf
-#   ./tools/figextract.sh quellen/SWT/            # ganzen Themenordner
-#   -> aufbereitet/SWT/figures/<name>_S<Seite>_<i>.png + aufbereitet/SWT/<name>.figures.json
+#   ./tools/figextract.sh sources/SWT/04_UML.pdf
+#   ./tools/figextract.sh sources/SWT/            # whole topic folder
+#   -> extracted/SWT/figures/<name>_p<page>_<i>.png + extracted/SWT/<name>.figures.json
 #
-# Nutzt dasselbe Image wie tools/extract.sh (baut es beim ersten Mal automatisch).
+# Uses the same image as tools/extract.sh (built automatically on first use).
 set -euo pipefail
 
-IMAGE="anki-karten-extract"
+IMAGE="anki-cards-extract"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "Image '$IMAGE' fehlt – baue es (beim ersten Mal dauert das etwas)..." >&2
+  echo "Image '$IMAGE' missing – building it (takes a while the first time)..." >&2
   docker build -f "$PROJECT_DIR/Dockerfile.extract" -t "$IMAGE" "$PROJECT_DIR"
 fi
 

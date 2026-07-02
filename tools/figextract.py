@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-"""Schneidet Abbildungen aus Quell-PDFs als PNG heraus (fuer Bild-/Occlusion-Karten
-und einen billigen Bild-Check).
+"""Crops figures out of source PDFs as PNGs (for image/occlusion cards and a
+cheap visual check).
 
-Aufruf (i. d. R. ueber tools/figextract.sh im Extract-Container):
-    python figextract.py quellen/SWT/04_UML.pdf
-    python figextract.py quellen/SWT/                  # ganzer Themenordner
-    python figextract.py quellen/SWT/04_UML.pdf --min-area 0.05 --zoom 2.5
+Usage (normally via tools/figextract.sh inside the extract container):
+    python figextract.py sources/SWT/04_UML.pdf
+    python figextract.py sources/SWT/                  # whole topic folder
+    python figextract.py sources/SWT/04_UML.pdf --min-area 0.05 --zoom 2.5
 
-Warum: Das aufbereitete .md enthaelt nur Captions, keine Pixel. Folien-Diagramme
-(UML/OOD ...) liegen als Vektorgrafik oder eingebettetes Rasterbild im PDF und haben
-keine eigene Bilddatei – occlusion braucht aber ein `image`. Dieses Tool extrahiert sie:
-  - eingebettete **Rasterbilder** (Fotos/Screenshots) -> exakt zugeschnitten,
-  - **Vektor-Cluster** (gezeichnete Diagramme) via PyMuPDF cluster_drawings().
+Why: the extracted .md contains captions only, no pixels. Slide diagrams
+(UML/OOD ...) live in the PDF as vector graphics or embedded raster images and
+have no standalone image file — but occlusion needs an `image`. This tool
+extracts them:
+  - embedded **raster images** (photos/screenshots) -> cropped exactly,
+  - **vector clusters** (drawn diagrams) via PyMuPDF cluster_drawings().
 
-Ergebnis pro PDF (gespiegelt nach aufbereitet/<Thema>/):
-  aufbereitet/<Thema>/figures/<name>_S<Seite>_<i>.png   – die Crops
-  aufbereitet/<Thema>/<name>.figures.json               – Manifest (Seite, Bbox 0..1, Art)
+Result per PDF (mirrored into extracted/<topic>/):
+  extracted/<topic>/figures/<name>_p<page>_<i>.png   — the crops
+  extracted/<topic>/<name>.figures.json              — manifest (page, bbox 0..1, kind)
 
-Die Crops sind klein -> billig per Read-Tool ansehen (statt die ganze PDF-Seite zu
-laden) und direkt als occlusion-`image` referenzierbar (Pfad relativ zum Projekt-Root,
-Dateinamen global eindeutig durch <name>-Praefix). Seitenzahlen sind 1-basiert wie die
-`<!-- S. N -->`-Marker im .md und die `<name>.figures.md` (Caption-Index, figindex.py).
+The crops are small -> cheap to view with the Read tool (instead of loading the
+whole PDF page) and directly usable as an occlusion `image` (path relative to the
+project root, file names globally unique via the <name> prefix). Page numbers are
+1-based like the `<!-- p. N -->` markers in the .md and the `<name>.figures.md`
+(caption index, figindex.py).
 """
 import argparse
 import json
@@ -31,7 +33,7 @@ import fitz  # PyMuPDF
 
 
 def _rects_from_images(page):
-    """Platzierungs-Rechtecke aller eingebetteten Rasterbilder der Seite."""
+    """Placement rectangles of all embedded raster images on the page."""
     rects = []
     for img in page.get_images(full=True):
         xref = img[0]
@@ -44,32 +46,33 @@ def _rects_from_images(page):
 
 
 def _rects_from_drawings(page):
-    """Bounding-Boxen zusammenhaengender Vektorgrafik (gezeichnete Diagramme)."""
+    """Bounding boxes of connected vector graphics (drawn diagrams)."""
     if not hasattr(page, "cluster_drawings"):
         return []
     try:
         clusters = page.cluster_drawings()
     except Exception:
         return []
-    return [("vektor", fitz.Rect(r)) for r in clusters]
+    return [("vector", fitz.Rect(r)) for r in clusters]
 
 
 def _overlap_ratio(a, b):
-    inter = a & b  # Schnitt-Rechteck (leer -> Flaeche 0)
+    inter = a & b  # intersection rect (empty -> area 0)
     ia = inter.get_area() if not inter.is_empty else 0.0
     smaller = min(a.get_area(), b.get_area()) or 1.0
     return ia / smaller
 
 
 def _merge(rects, thresh=0.5):
-    """Vereinigt stark ueberlappende Rechtecke (Raster wird oft mehrfach gemeldet;
-    Vektor-Cluster ueberlappen Raster). Groesste zuerst, kleinere verschmelzen rein."""
+    """Merges strongly overlapping rectangles (raster images are often reported
+    multiple times; vector clusters overlap raster). Largest first, smaller ones
+    get merged in."""
     rects = sorted(rects, key=lambda kr: kr[1].get_area(), reverse=True)
     kept = []
     for kind, r in rects:
         for i, (k2, r2) in enumerate(kept):
             if _overlap_ratio(r, r2) > thresh:
-                kept[i] = (k2, r2 | r)  # Union; Art des groesseren behalten
+                kept[i] = (k2, r2 | r)  # union; keep the kind of the larger one
                 break
         else:
             kept.append((kind, r))
@@ -87,7 +90,7 @@ def _frac(rect, page_rect):
 
 
 def _figures_on_page(page, min_area, max_area, min_side):
-    """Gefilterte, zusammengefuehrte Figur-Rechtecke einer Seite (1 = ganze Seite)."""
+    """Filtered, merged figure rectangles of a page (1 = whole page)."""
     pr = page.rect
     page_area = (pr.width * pr.height) or 1.0
     candidates = _rects_from_images(page) + _rects_from_drawings(page)
@@ -97,10 +100,10 @@ def _figures_on_page(page, min_area, max_area, min_side):
         area = (r.width * r.height) / page_area
         if not (min_area <= area <= max_area):
             continue
-        if f["w"] < min_side or f["h"] < min_side:  # duenne Linien/Baender raus
+        if f["w"] < min_side or f["h"] < min_side:  # drop thin lines/bands
             continue
         out.append((kind, r, f, area))
-    out.sort(key=lambda t: (t[2]["y"], t[2]["x"]))  # oben->unten, links->rechts
+    out.sort(key=lambda t: (t[2]["y"], t[2]["x"]))  # top->bottom, left->right
     return out
 
 
@@ -117,15 +120,15 @@ def extract(in_path, out_dir, zoom=2.0, min_area=0.03, max_area=0.92,
         if figs:
             os.makedirs(fig_dir, exist_ok=True)
         for n, (kind, rect, frac, area) in enumerate(figs, start=1):
-            fname = f"{stem}_S{i + 1}_{n}.png"
+            fname = f"{stem}_p{i + 1}_{n}.png"
             rel = os.path.join(fig_dir, fname)
             page.get_pixmap(matrix=mat, clip=rect).save(rel)
             manifest.append({
-                "page": i + 1,            # 1-basiert wie die <!-- S. N -->-Marker
-                "kind": kind,             # raster | vektor
-                "image": rel,             # Pfad relativ zum Projekt-Root (occlusion-`image`)
-                "area": round(area, 4),   # Flaechenanteil der Seite
-                **frac,                   # x, y, w, h als Bruchteil 0..1
+                "page": i + 1,            # 1-based like the <!-- p. N --> markers
+                "kind": kind,             # raster | vector
+                "image": rel,             # path relative to project root (occlusion `image`)
+                "area": round(area, 4),   # fraction of the page area
+                **frac,                   # x, y, w, h as fractions 0..1
             })
     doc.close()
 
@@ -137,16 +140,16 @@ def extract(in_path, out_dir, zoom=2.0, min_area=0.03, max_area=0.92,
                       f, ensure_ascii=False, indent=2)
     elif os.path.exists(json_path):
         os.remove(json_path)
-    print(f"OK: {stem}: {len(manifest)} Abbildung(en) -> {fig_dir}/")
+    print(f"OK: {stem}: {len(manifest)} figure(s) -> {fig_dir}/")
     return len(manifest)
 
 
 def _default_out_dir(in_path):
-    """quellen/<Thema>/<name>.pdf -> aufbereitet/<Thema>/"""
+    """sources/<topic>/<name>.pdf -> extracted/<topic>/"""
     norm = in_path.replace(os.sep, "/")
-    if norm.startswith("quellen/"):
-        return os.path.join("aufbereitet", os.path.dirname(norm[len("quellen/"):]))
-    return "aufbereitet"
+    if norm.startswith("sources/"):
+        return os.path.join("extracted", os.path.dirname(norm[len("sources/"):]))
+    return "extracted"
 
 
 def _pdfs_in(folder):
@@ -155,29 +158,29 @@ def _pdfs_in(folder):
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description="Abbildungen aus PDF schneiden (-> PNG-Crops).")
-    ap.add_argument("input", help="PDF-Datei oder Ordner (z. B. quellen/SWT/)")
-    ap.add_argument("--zoom", type=float, default=2.0, help="Render-Zoom der Crops (Default 2.0)")
+    ap = argparse.ArgumentParser(description="Crop figures out of a PDF (-> PNG crops).")
+    ap.add_argument("input", help="PDF file or folder (e.g. sources/SWT/)")
+    ap.add_argument("--zoom", type=float, default=2.0, help="render zoom of the crops (default 2.0)")
     ap.add_argument("--min-area", type=float, default=0.03,
-                    help="kleinste Figur als Flaechenanteil der Seite (Default 0.03)")
+                    help="smallest figure as fraction of the page area (default 0.03)")
     ap.add_argument("--max-area", type=float, default=0.92,
-                    help="groesste Figur (Default 0.92; darueber = Seitenhintergrund)")
+                    help="largest figure (default 0.92; above = page background)")
     ap.add_argument("--min-side", type=float, default=0.06,
-                    help="kleinste Kantenlaenge als Bruchteil (Default 0.06)")
+                    help="smallest edge length as a fraction (default 0.06)")
     args = ap.parse_args(argv)
 
     inputs = _pdfs_in(args.input) if os.path.isdir(args.input) else [args.input]
     if not inputs:
-        print(f"Keine PDFs in {args.input}", file=sys.stderr)
+        print(f"No PDFs in {args.input}", file=sys.stderr)
         return 1
     total = 0
     for p in inputs:
         if not p.lower().endswith(".pdf") or not os.path.isfile(p):
-            print(f"Uebersprungen (keine PDF-Datei): {p}", file=sys.stderr)
+            print(f"Skipped (not a PDF file): {p}", file=sys.stderr)
             continue
         total += extract(p, _default_out_dir(p), args.zoom,
                          args.min_area, args.max_area, args.min_side)
-    print(f"Fertig: {total} Abbildung(en) ueber alle Dateien.")
+    print(f"Done: {total} figure(s) across all files.")
     return 0
 
 

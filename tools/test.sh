@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Schnelle Testsuite der stdlib-Logik-Tools (lint, grounding, coverage, figindex).
-# Reines Python (unittest) – KEIN Docker, KEINE pip-Installation noetig.
+# Fast test suite for the stdlib logic tools (lint, grounding, coverage, figindex).
+# Pure Python (unittest) — NO Docker, NO pip install needed.
 #
-#   ./tools/test.sh                 # alle Tests
-#   ./tools/test.sh -v              # ausfuehrlich
+#   ./tools/test.sh                 # all tests
+#   ./tools/test.sh -v              # verbose
 #
-# Der Build-Smoke-Test (build_deck.py) braucht genanki und ueberspringt sich auf dem
-# Host; im Build-Container laeuft er mit:
-#   docker run --rm -v "$PWD":/work --entrypoint python anki-karten \
+# The build smoke test (build_deck.py) needs genanki and skips itself on the
+# host; inside the build container it runs with:
+#   docker run --rm -v "$PWD":/work --entrypoint python anki-cards \
 #       -m unittest discover -s /work/tests
 set -euo pipefail
 

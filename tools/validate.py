@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Validiert eine .apkg in einer ECHTEN Anki-Collection (offizielles Backend, ohne
-GUI): importieren + jede Karte mit Ankis Template-Engine rendern. Das ist die
-staerkste Pruefung – sie nutzt dieselbe Engine wie die Desktop-App, nicht unsere
-Vorschau-Emulation.
+"""Validates an .apkg in a REAL Anki collection (official backend, no GUI):
+import it + render every card with Anki's template engine. This is the strongest
+check — it uses the same engine as the desktop app, not our preview emulation.
 
-Aufruf (ueber tools/validate.sh im Validate-Container):
-    ./tools/validate.sh decks/skript.apkg
+Usage (via tools/validate.sh inside the validate container):
+    ./tools/validate.sh decks/script.apkg
 
-Exit-Code 0 = alles ok; 1 = Importfehler, Render-Fehler oder leere Karten.
+Exit code 0 = all good; 1 = import error, render errors, or empty cards.
 """
 import os
 import re
@@ -18,12 +17,12 @@ from anki.collection import Collection
 
 
 def _import(col, apkg):
-    """Moderne Import-API bevorzugt, Fallback auf Legacy-Importer."""
+    """Prefer the modern import API, fall back to the legacy importer."""
     try:
         from anki.collection import ImportAnkiPackageRequest
 
         col.import_anki_package(ImportAnkiPackageRequest(package_path=apkg))
-        return "moderne API"
+        return "modern API"
     except Exception as e_new:
         import anki.lang
 
@@ -34,12 +33,12 @@ def _import(col, apkg):
         from anki.importing.apkg import AnkiPackageImporter
 
         AnkiPackageImporter(col, apkg).run()
-        return f"legacy (moderne API: {e_new})"
+        return f"legacy (modern API: {e_new})"
 
 
 def validate(apkg):
     if not os.path.exists(apkg):
-        print(f"FEHLER: Datei nicht gefunden: {apkg}")
+        print(f"ERROR: file not found: {apkg}")
         return 1
 
     tmp = tempfile.mkdtemp()
@@ -51,7 +50,7 @@ def validate(apkg):
         decks = [d.name for d in col.decks.all_names_and_ids() if d.name != "Default"]
         card_ids = list(col.find_cards(""))
         print("Decks:", sorted(decks))
-        print(f"Notizen: {len(col.find_notes(''))}  Karten: {len(card_ids)}")
+        print(f"Notes: {len(col.find_notes(''))}  Cards: {len(card_ids)}")
 
         strip = lambda s: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s)).strip()
         errors = empty = 0
@@ -63,18 +62,18 @@ def validate(apkg):
                 q, a = out.question_text, out.answer_text
             except Exception as e:
                 errors += 1
-                print("  RENDER-FEHLER:", e)
+                print("  RENDER ERROR:", e)
                 continue
             if not strip(q) or not strip(a):
                 empty += 1
-                print(f"  LEERE KARTE: {c.note_type()['name']} (cid {cid})")
+                print(f"  EMPTY CARD: {c.note_type()['name']} (cid {cid})")
             by_type.setdefault(c.note_type()["name"], []).append((q, a))
 
-        print("\nKarten pro Notiztyp:")
+        print("\nCards per note type:")
         for nt, cards in sorted(by_type.items()):
             print(f"  {nt}: {len(cards)}")
 
-        print("\n=== Je ein Render-Beispiel pro Notiztyp (Anki-Engine) ===")
+        print("\n=== One render sample per note type (Anki engine) ===")
         for nt, cards in sorted(by_type.items()):
             q, a = cards[0]
             print(f"--- {nt} ---")
@@ -82,8 +81,8 @@ def validate(apkg):
             print("  BACK :", strip(a)[:180])
 
         ok = errors == 0 and empty == 0
-        print(f"\n-> {errors} Render-Fehler, {empty} leere Karten — "
-              + ("OK ✓" if ok else "PROBLEME ✗"))
+        print(f"\n-> {errors} render errors, {empty} empty cards — "
+              + ("OK ✓" if ok else "PROBLEMS ✗"))
         return 0 if ok else 1
     finally:
         col.close()

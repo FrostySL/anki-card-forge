@@ -1,5 +1,5 @@
-# Schlankes Image zum Validieren von .apkg in der echten Anki-Engine (Backend,
-# ohne GUI). Getrennt von Builder- und Vorschau-Image.
+# Slim image for validating .apkg files in the real Anki engine (backend,
+# no GUI). Separate from the builder and preview images.
 FROM python:3.12-slim
 
 ENV HOME=/tmp

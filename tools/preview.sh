@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Rendert die Karten einer cards.json als PNG-Vorschau – im Vorschau-Container.
+# Renders the cards of a cards.json as PNG previews — inside the preview container.
 #
-#   ./tools/preview.sh decks/skript.cards.json
-#   -> decks/preview/skript/*.png + index.html
+#   ./tools/preview.sh decks/script.cards.json
+#   -> decks/preview/script/*.png + index.html
 #
-# Erster Aufruf baut das (groessere) Vorschau-Image automatisch.
+# The first run builds the (larger) preview image automatically.
 set -euo pipefail
 
-IMAGE="anki-karten-preview"
+IMAGE="anki-cards-preview"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "Image '$IMAGE' fehlt – baue es (beim ersten Mal dauert das etwas)..." >&2
+  echo "Image '$IMAGE' missing – building it (takes a while the first time)..." >&2
   docker build -f "$PROJECT_DIR/Dockerfile.preview" -t "$IMAGE" "$PROJECT_DIR"
 fi
 

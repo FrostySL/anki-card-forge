@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Baut aus einer Karten-JSON-Datei ein .apkg-Paket – im Docker-Container.
+# Builds an .apkg package from card JSON file(s) — inside the Docker container.
 #
-#   ./tools/build.sh decks/skript.cards.json [decks/skript.apkg]
+#   ./tools/build.sh decks/script.cards.json [decks/script.apkg]
 #
-# Voraussetzung: Image einmalig bauen mit  docker build -t anki-karten .
+# A missing image is built automatically (docker build -t anki-cards .).
 set -euo pipefail
 
-IMAGE="anki-karten"
+IMAGE="anki-cards"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "Image '$IMAGE' fehlt – baue es..." >&2
+  echo "Image '$IMAGE' missing – building it..." >&2
   docker build -t "$IMAGE" "$PROJECT_DIR"
 fi
 

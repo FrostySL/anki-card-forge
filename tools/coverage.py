@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Abdeckung & Dubletten ueber alle cards.json eines Themas (reines Python).
+"""Coverage & near-duplicates across all cards.json of a topic (pure Python).
 
-    python3 tools/coverage.py decks/SWT/                 # ganzer Themenordner
+    python3 tools/coverage.py decks/SWT/                 # whole topic folder
     python3 tools/coverage.py decks/SWT/04_UML.cards.json decks/SWT/03_ANA.cards.json
 
-Ergaenzt lint_cards.py (das nur EINE Datei auf *exakte* Dubletten prueft) um:
-  1. **Beinah-Dubletten** ueber Dateigrenzen hinweg (Token-Jaccard der Fragen) –
-     fuer Themen mit vielen Kapiteln, wo derselbe Fakt leicht doppelt landet.
-  2. **Abdeckungsluecken**: pro Datei die zitierten Quellseiten (`source: "... S. N"`)
-     gegen die Seiten der Schwester-.md (aufbereitet/<Thema>/<name>.md) – welche
-     Seiten haben (noch) keine Karte? Plus Karten ganz ohne `source`.
+Complements lint_cards.py (which only checks ONE file for *exact* duplicates) with:
+  1. **Near-duplicates** across file boundaries (token Jaccard of the questions) —
+     for topics with many chapters where the same fact easily lands twice.
+  2. **Coverage gaps**: per file, the cited source pages (`source: "... p. N"`)
+     against the pages of the sibling .md (extracted/<topic>/<name>.md) — which
+     pages have no card (yet)? Plus cards without any `source`.
 
-Rein informativ (Exit 0), mit --strict wird bei Beinah-Dubletten Exit 1.
+Informational only (exit 0); with --strict, near-duplicates give exit 1.
 """
 import argparse
 import glob
@@ -22,12 +22,17 @@ import sys
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WORD_RE = re.compile(r"[0-9A-Za-zÀ-ÿ]+")
-_PAGE_CITE_RE = re.compile(r"S\.\s*(\d+)")
-_MARKER_RE = re.compile(r"<!--\s*S\.\s*(\d+)([^>]*?)-->")
+# Page citations/markers: English "p. N" and legacy German "S. N" both accepted.
+# \b so that e.g. "Kap. 8" (chapter) is not misread as a page citation.
+_PAGE_CITE_RE = re.compile(r"\b(?:p|S)\.\s*(\d+)")
+_MARKER_RE = re.compile(r"<!--\s*(?:p|S)\.\s*(\d+)([^>]*?)-->")
+# German + English question/function words; other languages just skip filtering.
 _STOP = set("""
 und oder der die das den dem des ein eine einen einem einer eines kein keine was
 ist sind welche welcher welches wie warum wozu wann wo wer wieviel nenne nennen
 fuer für mit von zu im in an um es bei auf aus nicht so dies diese woran wodurch
+the and for with that this from are was were what which when where who why how
+does name give state which
 """.split())
 
 
@@ -68,11 +73,11 @@ def _cards_files(paths):
 
 
 def _sibling_md(cards_path):
-    """Zugehoerige aufbereitet/-.md – exakt oder per Praefix (cards 'kurz', .md 'lang')."""
-    exact = cards_path.replace("decks/", "aufbereitet/", 1).replace(".cards.json", ".md")
+    """The matching extracted/ .md — exact or by prefix (cards 'short', .md 'long')."""
+    exact = cards_path.replace("decks/", "extracted/", 1).replace(".cards.json", ".md")
     if os.path.isfile(exact):
         return exact
-    theme = os.path.dirname(cards_path).replace("decks/", "aufbereitet/", 1)
+    theme = os.path.dirname(cards_path).replace("decks/", "extracted/", 1)
     stem = os.path.basename(cards_path)[:-len(".cards.json")]
     cands = [p for p in sorted(glob.glob(os.path.join(theme, "*.md")))
              if not p.endswith(".figures.md")]
@@ -82,20 +87,21 @@ def _sibling_md(cards_path):
 
 
 def _source_pages(cards_path):
-    """Vorhandene (nicht-leere) Seiten der Schwester-.md -> Menge von Seitenzahlen."""
+    """Existing (non-empty) pages of the sibling .md -> set of page numbers."""
     md = _sibling_md(cards_path)
     if not md:
         return None
     pages = set()
     with open(md, encoding="utf-8") as f:
         for m in _MARKER_RE.finditer(f.read()):
-            if "leer" not in m.group(2):
+            # "empty"/"leer" marker suffix = page without content
+            if "empty" not in m.group(2) and "leer" not in m.group(2):
                 pages.add(int(m.group(1)))
     return pages
 
 
 def _fmt_pages(pages):
-    """Sortierte Seiten als kompakte Bereiche: {1,2,3,7} -> '1-3, 7'."""
+    """Sorted pages as compact ranges: {1,2,3,7} -> '1-3, 7'."""
     pages = sorted(pages)
     out, i = [], 0
     while i < len(pages):
@@ -110,11 +116,11 @@ def _fmt_pages(pages):
 def run(paths, threshold=0.8, strict=False):
     files = _cards_files(paths)
     if not files:
-        print("Keine cards.json gefunden.", file=sys.stderr)
+        print("No cards.json found.", file=sys.stderr)
         return 1
 
-    entries = []  # (datei, index, fronttext, tokens)
-    print("== Abdeckung pro Datei ==")
+    entries = []  # (file, index, front text, tokens)
+    print("== Coverage per file ==")
     for cf in files:
         with open(cf, encoding="utf-8") as f:
             cards = (json.load(f).get("cards") or [])
@@ -127,16 +133,16 @@ def run(paths, threshold=0.8, strict=False):
             else:
                 no_src += 1
         src_pages = _source_pages(cf)
-        line = f"  {os.path.basename(cf):42} {len(cards):3} Karten"
+        line = f"  {os.path.basename(cf):42} {len(cards):3} cards"
         if no_src:
-            line += f"; {no_src} ohne source"
+            line += f"; {no_src} without source"
         if src_pages:
             gaps = src_pages - cited
-            line += (f"; Quellseiten {len(cited)}/{len(src_pages)} abgedeckt"
-                     + (f", Luecken: S. {_fmt_pages(gaps)}" if gaps else ", keine Luecken ✓"))
+            line += (f"; source pages {len(cited)}/{len(src_pages)} covered"
+                     + (f", gaps: p. {_fmt_pages(gaps)}" if gaps else ", no gaps ✓"))
         print(line)
 
-    print(f"\n== Beinah-Dubletten (Jaccard ≥ {threshold:.0%}) ==")
+    print(f"\n== Near-duplicates (Jaccard ≥ {threshold:.0%}) ==")
     dups = 0
     for a in range(len(entries)):
         fa, ia, ta, toka = entries[a]
@@ -145,23 +151,23 @@ def run(paths, threshold=0.8, strict=False):
             j = _jaccard(toka, tokb)
             if j >= threshold:
                 dups += 1
-                tag = "EXAKT" if ta.lower() == tb.lower() else f"{j:.0%}"
+                tag = "EXACT" if ta.lower() == tb.lower() else f"{j:.0%}"
                 print(f"  [{tag}] {os.path.basename(fa)}#{ia} ~ {os.path.basename(fb)}#{ib}")
                 print(f"         A: {ta!r}")
                 print(f"         B: {tb!r}")
     if not dups:
-        print("  keine gefunden ✓")
+        print("  none found ✓")
 
-    print(f"\n-> {len(files)} Datei(en), {len(entries)} Karten, {dups} Beinah-Dublette(n).")
+    print(f"\n-> {len(files)} file(s), {len(entries)} cards, {dups} near-duplicate(s).")
     return 1 if (strict and dups) else 0
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description="Abdeckung & Dubletten ueber cards.json.")
-    ap.add_argument("paths", nargs="+", help="decks/<Thema>/ ODER einzelne .cards.json")
+    ap = argparse.ArgumentParser(description="Coverage & duplicates across cards.json.")
+    ap.add_argument("paths", nargs="+", help="decks/<topic>/ OR individual .cards.json")
     ap.add_argument("--threshold", type=float, default=0.8,
-                    help="Jaccard-Schwelle fuer Beinah-Dubletten (Default 0.8)")
-    ap.add_argument("--strict", action="store_true", help="Exit 1 bei Dubletten")
+                    help="Jaccard threshold for near-duplicates (default 0.8)")
+    ap.add_argument("--strict", action="store_true", help="exit 1 on duplicates")
     args = ap.parse_args(argv)
     return run(args.paths, args.threshold, args.strict)
 
