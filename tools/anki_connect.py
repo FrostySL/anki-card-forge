@@ -355,6 +355,7 @@ def mirror(deck_names=None):
         total = sum(n for _, _, n in files)
         if total == 0:  # empty deck (e.g. unused default deck): no point keeping it
             os.unlink(apkg_path)
+            shutil.rmtree(os.path.join(MIRROR_DIR, safe + "_cards"), ignore_errors=True)
             failed.append((deck, "empty deck, nothing to mirror"))
             continue
         ok.append((deck, apkg_path, total))
