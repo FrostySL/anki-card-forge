@@ -288,6 +288,71 @@ class TestPushPrune(unittest.TestCase):
         self.assertIn("nothing to delete", out)
 
 
+class TestUpdateNote(unittest.TestCase):
+    NOTE_INFO = {
+        "noteId": 42, "modelName": "Einfach-b7fab", "cards": [420],
+        "fields": {
+            "Vorderseite": {"value": "Frage?", "order": 0},
+            "Rückseite": {"value": "Antwort", "order": 1},
+        },
+    }
+
+    def _run(self, responses, fields, backup=True):
+        fake, payloads = urlopen_mock(*responses)
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                    out = io.StringIO()
+                    with redirect_stdout(out):
+                        ac.update_note(42, fields, backup=backup)
+            finally:
+                os.chdir(cwd)
+        return payloads, out.getvalue()
+
+    def test_updates_after_backup_of_containing_deck(self):
+        payloads, out = self._run(
+            [
+                {"result": [self.NOTE_INFO], "error": None},               # notesInfo
+                {"result": [{"deckName": "S::SWT::01"}], "error": None},   # cardsInfo
+                {"result": True, "error": None},                          # exportPackage
+                {"result": None, "error": None},                          # updateNoteFields
+            ],
+            fields={"Rückseite": "Antwort<br>NEU"})
+        actions = [p["action"] for p in payloads]
+        self.assertEqual(actions,
+                         ["notesInfo", "cardsInfo", "exportPackage", "updateNoteFields"])
+        self.assertEqual(payloads[2]["params"]["deck"], "S::SWT::01")
+        note = payloads[3]["params"]["note"]
+        self.assertEqual(note, {"id": 42, "fields": {"Rückseite": "Antwort<br>NEU"}})
+        self.assertIn("Einfach-b7fab", out)  # note type shown for verification
+
+    def test_unknown_field_refused_before_any_write(self):
+        payloads = []
+        fake, payloads = urlopen_mock({"result": [self.NOTE_INFO], "error": None})
+        with mock.patch.object(ac.urllib.request, "urlopen", fake):
+            with self.assertRaisesRegex(ac.AnkiConnectError, "no field"):
+                ac.update_note(42, {"Back": "x"})  # note type has 'Rückseite', not 'Back'
+        self.assertEqual([p["action"] for p in payloads], ["notesInfo"])
+
+    def test_missing_note_raises(self):
+        fake, _ = urlopen_mock({"result": [{}], "error": None})
+        with mock.patch.object(ac.urllib.request, "urlopen", fake):
+            with self.assertRaisesRegex(ac.AnkiConnectError, "not found"):
+                ac.update_note(999, {"Rückseite": "x"})
+
+    def test_no_backup_skips_export(self):
+        payloads, _ = self._run(
+            [
+                {"result": [self.NOTE_INFO], "error": None},  # notesInfo
+                {"result": None, "error": None},              # updateNoteFields
+            ],
+            fields={"Rückseite": "neu"}, backup=False)
+        self.assertEqual([p["action"] for p in payloads],
+                         ["notesInfo", "updateNoteFields"])
+
+
 class TestBackupHelpers(unittest.TestCase):
     def test_covering(self):
         self.assertEqual(ac._covering({"A", "A::B", "A::B::C", "D::E"}),

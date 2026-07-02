@@ -50,6 +50,7 @@ python3 tools/anki_connect.py push <file.apkg> --no-backup  # ... without the au
 python3 tools/anki_connect.py export "<Deck>" <out.apkg>    # export WITH scheduling
 python3 tools/anki_connect.py sync                          # trigger AnkiWeb sync
 python3 tools/anki_connect.py mirror [deck ...]             # snapshot decks locally
+python3 tools/anki_connect.py update-note <nid> --field "Name=<html>"   # edit one note in place
 ```
 
 ### `ping`
@@ -101,6 +102,23 @@ skipped); with arguments only the named decks. Per deck you get:
 
 The mirror folder is gitignored and additionally blocked by the commit guard —
 it stays on your machine.
+
+### `update-note <nid> --field "Name=<html>"`
+
+Updates fields of **one existing note in place** — note type, GUID and
+scheduling stay untouched. Use it for small, surgical edits ("add an
+explanation to this one card") and especially for notes whose **note type was
+not built by this repo**: a `.apkg` push cannot reach those (Anki skips
+imported notes whose GUID matches but whose note type differs), an in-place
+field update can.
+
+- `nid` is the note id (visible in the mirror decode output, or via Anki's
+  browser). Field names are the note type's real names (e.g. a German Basic
+  clone has `Vorderseite`/`Rückseite`) — a wrong name is refused with the
+  list of valid ones before anything is written.
+- The containing deck is backed up first, exactly like `push`
+  (`--no-backup` to skip).
+- `--field` is repeatable for several fields in one call.
 
 ## Removing cards (`push --prune`)
 
