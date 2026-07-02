@@ -9,10 +9,10 @@ externen LLM-Aufruf und keinen API-Key. Docker macht nur das stumpfe
 
 | Ordner | Zweck |
 |---|---|
-| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/Biologie/`, `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
+| `quellen/<Thema>/` | Quellen **pro Themengebiet** in eigenem Unterordner (z. B. `quellen/Biologie/`, `quellen/Mathe/`, `quellen/Softwareentwicklung/`). PDFs/Texte/Markdown. Optional eine **`context.md`** (Groß-/Kleinschreibung bzw. `Kontext.md` tolerieren — im Zweifel `ls quellen/<Thema>/`) mit Kontext zum Thema (worum geht's, wozu/warum gebraucht, Fokus, Prüfungsrelevanz) — **vor** dem Kartenbau lesen. |
 | `decks/<Thema>/` | Spiegelt die Themen: generierte `.cards.json` **und** `.apkg` liegen im selben Themenordner (z. B. `decks/Biologie/`). |
 | `aufbereitet/<Thema>/` | **Maschinenlesbare Markdown-Extrakte** der Quellen (via `tools/extract.sh`), gespiegelt nach Thema (z. B. `aufbereitet/Biologie/zellatmung.md`). Hier lese/zitiere ich effizient statt aus dem PDF. Dazu pro Datei ein **`<name>.figures.md`** (Abbildungs-Index: „Abb. N – S. P: Titel"); Seitenmarker zeigen die Bildzahl (`<!-- S. 12 · 2 Abb. -->`). **Bilder selbst sind nicht im `.md`** — entweder die echte Seite via Read-Tool am PDF ansehen (`pages="<S.>"`) **oder** die per `figextract.sh` geschnittenen Crops unter **`figures/<name>_S<Seite>_<i>.png`** nutzen (Manifest `<name>.figures.json`: Seite, Bbox 0..1, Art). Gitignored (abgeleitet, reproduzierbar). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `figextract.py`/`figextract.sh` (Abbildungen aus PDF schneiden → PNG-Crops), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Struktur-Check), `grounding_check.py` (Karten gegen Quelltext prüfen), `coverage.py` (Dubletten + Abdeckung über alle cards.json), `validate.py`/`validate.sh` (echte Anki-Engine), `apkg_to_cards.py` (`.apkg` → `cards.json` zurück, **GUIDs erhalten** — für Änderungen an bereits gelernten Decks ohne Fortschrittsverlust). **Orchestratoren:** `prep.sh` (extract+figindex+figextract in einem), `finish.sh` (lint+grounding+build+validate). **Tests:** `test.sh` (`tests/`, stdlib-`unittest` der Logik-Tools — kein Docker, kein pip; `./tools/test.sh`). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (Wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR-Fallback), `figindex.py` (Abbildungs-Index, stdlib), `figextract.py`/`figextract.sh` (Abbildungen aus PDF schneiden → PNG-Crops), `preview.py`/`preview.sh` (Karten→PNG), `detect_labels.py`/`detect.sh` (OCR→exakte Boxen), `lint_cards.py` (Struktur-Check), `grounding_check.py` (Karten gegen Quelltext prüfen), `coverage.py` (Dubletten + Abdeckung über alle cards.json), `validate.py`/`validate.sh` (echte Anki-Engine), `apkg_to_cards.py` (`.apkg` → `cards.json` zurück, **GUIDs erhalten** — für Änderungen an bereits gelernten Decks ohne Fortschrittsverlust). **Orchestratoren:** `prep.sh` (extract+figindex+figextract in einem), `finish.sh` (lint+grounding[+coverage]+build+validate; auch mehrere cards.json → eine .apkg). **Tests:** `test.sh` (`tests/`, stdlib-`unittest` der Logik-Tools — kein Docker, kein pip; `./tools/test.sh`). |
 | `reference/` | **Lokale** Anki-Nachschlagewerke (Handbuch + Quellcode), **nicht im Repo** (fremde Lizenz/AGPL) — optional lokal klonen, siehe `reference/README.md`. |
 | `reference/anki-manual/` | Offizielles Anki-Handbuch als Nachschlagewerk (nicht anfassen). Falls lokal vorhanden. |
 | `reference/anki/` | Anki-Quellcode (shallow clone) als Nachschlagewerk — **nur lesen**, falls lokal vorhanden. Hat eigene `CLAUDE.md`/`AGENTS.md`; das sind Ankis Dev-Hinweise, nicht für dieses Projekt. Natives Image-Occlusion-Format: `rslib/src/image_occlusion/imageocclusion.rs`. |
@@ -25,8 +25,9 @@ damit Anki es als oberstes Deck führt: `"<Thema>::<Titel>"` (z. B.
 `"Biologie::Zellatmung"`).
 
 1. Quelldatei liegt in `quellen/<Thema>/` (z. B. `quellen/Biologie/zellatmung.pdf`).
-   **Liegt eine `quellen/<Thema>/context.md` vor, zuerst diese lesen** — sie sagt,
-   worum es geht und worauf der Fokus liegt; das steuert Auswahl und Schwerpunkt der Karten.
+   **Liegt eine `quellen/<Thema>/context.md` (oder anders geschrieben, z. B.
+   `Kontext.md`) vor, zuerst diese lesen** — sie sagt, worum es geht und worauf der
+   Fokus liegt; das steuert Auswahl und Schwerpunkt der Karten.
 2. **Quelle aufbereiten** (einmal pro neuer Datei): PDF → maschinenlesbares Markdown
    **und** Abbildungen schneiden — in einem Schritt:
    ```bash
@@ -144,7 +145,10 @@ die Boxen per Auge platziert sind — prüfe das Ergebnis:
    meldet es Notiztyp + Karte.
 
 **Abkürzung:** `./tools/finish.sh decks/<Thema>/<name>.cards.json` macht 1 + 1b +
-Build + Validate in einem Rutsch (Lint ist ein Gate; Grounding nur Hinweis). Bei
+Build + Validate in einem Rutsch (Lint ist ein Gate; Grounding nur Hinweis). Mehrere
+`cards.json` (plus Ziel-`.apkg`, dann Pflicht) bündeln in EINE Datei und laufen
+zusätzlich durch 1c (`coverage.py`):
+`./tools/finish.sh decks/<Thema>/*.cards.json decks/<Thema>/<Thema>-komplett.apkg`. Bei
 Occlusion-Karten zusätzlich `preview.sh` und die PNGs ansehen (Schritte 2–4).
 
 > Das Vorschau-Image (`anki-karten-preview`) ist groß (Chromium) und wird beim
