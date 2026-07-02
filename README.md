@@ -1,4 +1,4 @@
-# Anki-Karten
+# anki-card-forge
 
 Turn **lecture scripts, books, slides and notes** into high-quality **Anki
 flashcards** — together with [Claude Code](https://claude.com/claude-code).
@@ -39,8 +39,8 @@ Nothing else — all Python dependencies live inside the Docker images.
 ## Quick start
 
 ```bash
-git clone https://github.com/FrostySL/Anki-Karten
-cd Anki-Karten
+git clone https://github.com/FrostySL/anki-card-forge
+cd anki-card-forge
 docker build -t anki-cards .             # slim builder image (one-off)
 git config core.hooksPath .githooks      # commit guard (see below, one-off)
 ```

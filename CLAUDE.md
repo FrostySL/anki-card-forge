@@ -1,4 +1,4 @@
-# Anki-Karten — project guide (for Claude)
+# anki-card-forge — project guide (for Claude)
 
 This project turns **source files into Anki flashcards**.
 **Claude (me) is the AI** that authors the card content — there is **no**
