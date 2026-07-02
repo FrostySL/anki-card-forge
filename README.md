@@ -31,6 +31,8 @@ What makes the cards good rather than just numerous:
 
 ## Requirements
 
+- **[Anki](https://apps.ankiweb.net/)** (the flashcard app you study in — desktop,
+  or AnkiMobile/AnkiDroid) to import and review the generated decks
 - **[Claude Code](https://claude.com/claude-code)** (the AI that writes the cards)
 - **Docker** (packs cards into `.apkg`, renders previews, runs OCR)
 
@@ -49,10 +51,18 @@ git config core.hooksPath .githooks      # commit guard (see below, one-off)
    per topic, e.g. `sources/Biology/`.
 2. Ask Claude in the chat: **"Create Anki cards from sources/Biology/respiration.pdf."**
 3. Claude produces `decks/Biology/respiration.apkg`.
-4. Import into Anki via **File → Import** (or double-click).
+4. **Import into Anki:** double-click the `.apkg`, or in Anki open **File → Import**
+   and pick it. The cards land in a deck named after the topic (e.g. `Biology`),
+   ready to study — scheduling, subdecks and styling are already baked in. On phones,
+   sync the desktop collection to AnkiWeb and the deck appears in AnkiMobile/AnkiDroid.
 
 The larger images (preview/OCR, source extraction) are built automatically the
 first time the corresponding `tools/*.sh` runs.
+
+> **Re-importing a newer version of a deck?** If you have already studied it, keep
+> your progress by giving cards stable GUIDs — see
+> [Updating an already-learned deck](#updating-an-already-learned-deck-without-losing-progress).
+> A plain rebuild otherwise creates fresh cards and resets scheduling.
 
 ### Any topic, any language
 
