@@ -163,6 +163,7 @@ python3 tools/anki_connect.py push decks/<topic>/<name>.apkg   # import a built 
 python3 tools/anki_connect.py export "<Deck>" out.apkg # export WITH scheduling
 python3 tools/anki_connect.py sync                    # trigger AnkiWeb sync
 python3 tools/anki_connect.py mirror                  # local backup of all decks
+python3 tools/anki_connect.py update-note <nid> --field "Back=..."   # edit one note in place
 ```
 
 `./tools/finish.sh … --push [--prune] [--sync]` chains it into the build:

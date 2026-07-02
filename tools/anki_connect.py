@@ -14,6 +14,7 @@ Usage:
     python3 tools/anki_connect.py export "<Deck::Name>" <out.apkg>
     python3 tools/anki_connect.py sync
     python3 tools/anki_connect.py mirror [deck ...]
+    python3 tools/anki_connect.py update-note <nid> --field "Name=<html>" [...]
 
 Endpoint overridable via ANKICONNECT_URL (default http://127.0.0.1:8765).
 Pure local HTTP — no credentials, no Docker; the .apkg build itself is
@@ -58,10 +59,14 @@ class AnkiConnectError(RuntimeError):
 # Everything this tool needs — and nothing more. AnkiConnect also exposes
 # destructive actions (deleteDecks, deleteNotes, ...); those are deliberately
 # locked so no code path (or typo) can ever wipe someone's collection through
-# this tool. Conscious override only: ANKICONNECT_ALLOW_UNSAFE=1.
+# this tool. updateNoteFields is the only field-writing action here (used by
+# update-note, which backs up the deck first); deletes stay locked.
+# Conscious override only: ANKICONNECT_ALLOW_UNSAFE=1.
 SAFE_ACTIONS = {
     "version", "requestPermission", "deckNames",
     "importPackage", "exportPackage", "sync",
+    "notesInfo", "findCards", "cardsInfo",  # read-only lookups
+    "updateNoteFields",
 }
 
 
@@ -309,6 +314,37 @@ def sync():
     print("OK: sync triggered.")
 
 
+def update_note(nid, fields, backup=True):
+    """Updates fields of ONE existing note in place (updateNoteFields).
+
+    The way to edit a card that a .apkg push cannot reach: Anki skips imported
+    notes whose GUID matches but whose NOTE TYPE differs, so cards built with
+    foreign note types can only be changed in place. Keeps note type, GUID and
+    scheduling untouched. The containing deck is backed up first (like push).
+    """
+    infos = invoke("notesInfo", notes=[nid])
+    info = infos[0] if infos else {}
+    if not info or not info.get("fields"):
+        raise AnkiConnectError(f"Note {nid} not found in the collection.")
+    existing_fields = info["fields"]
+    unknown = [name for name in fields if name not in existing_fields]
+    if unknown:
+        raise AnkiConnectError(
+            f"Note {nid} has no field(s) {', '.join(unknown)} "
+            f"(note type '{info.get('modelName')}' has: {', '.join(existing_fields)})."
+        )
+    first_field = next(iter(existing_fields.values()))["value"]
+    print(f"Note {nid} ('{_snippet(first_field)}', note type '{info.get('modelName')}')")
+
+    if backup:
+        card_ids = info.get("cards") or invoke("findCards", query=f"nid:{nid}")
+        decks = {c["deckName"] for c in invoke("cardsInfo", cards=card_ids)}
+        _backup_decks(_covering(decks))
+
+    invoke("updateNoteFields", note={"id": nid, "fields": fields})
+    print(f"OK: updated field(s) {', '.join(fields)} of note {nid}.")
+
+
 MIRROR_DIR = os.path.join("decks", "_anki-mirror")
 
 
@@ -399,6 +435,15 @@ def main(argv):
     p_mirror.add_argument("decks", nargs="*",
                           help="deck names (default: all top-level decks)")
 
+    p_update = sub.add_parser(
+        "update-note", help="update fields of ONE existing note in place"
+    )
+    p_update.add_argument("nid", type=int, help="note id (e.g. from the mirror decode)")
+    p_update.add_argument("--field", action="append", required=True, metavar="NAME=HTML",
+                          help="field to set, e.g. --field 'Back=<b>new</b>' (repeatable)")
+    p_update.add_argument("--no-backup", action="store_true",
+                          help="skip the automatic backup of the containing deck")
+
     args = ap.parse_args(argv)
     try:
         if args.cmd == "ping":
@@ -411,6 +456,14 @@ def main(argv):
             sync()
         elif args.cmd == "mirror":
             mirror(args.decks)
+        elif args.cmd == "update-note":
+            fields = {}
+            for spec in args.field:
+                name, sep, value = spec.partition("=")
+                if not sep or not name:
+                    raise AnkiConnectError(f"--field expects NAME=HTML, got: {spec!r}")
+                fields[name] = value
+            update_note(args.nid, fields, backup=not args.no_backup)
     except AnkiConnectError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
