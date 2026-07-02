@@ -15,6 +15,8 @@ allowed() {
     tools/*|tests/*|.claude/*|.github/*|.githooks/*) return 0 ;;
     reference/README.md|sources/.gitkeep|decks/.gitkeep) return 0 ;;
     decks/example.cards.json) return 0 ;;
+    docs/*.md|docs/img/*.png|docs/img/*.gif) return 0 ;;  # documentation + README images
+    docs/*) return 1 ;;  # anything else there (screen recordings, ...) stays local
     */*) return 1 ;;  # any other subfolder: potentially personal
     *) return 0 ;;    # root files (README.md, CLAUDE.md, Dockerfile*, ...) ok
   esac
