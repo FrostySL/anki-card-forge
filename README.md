@@ -173,6 +173,19 @@ python3 tools/anki_connect.py mirror                  # local backup of all deck
   decoded, greppable `cards.json` (GUIDs included). The mirror is gitignored —
   it stays a local backup and never lands in the repo.
 
+Built-in safeguards:
+
+- **Nothing destructive is callable.** The tool only allows a small safe list of
+  AnkiConnect actions (import, export, sync, deck listing); deleting decks or
+  notes through it is locked out by design.
+- **Automatic backup before every push.** An import overwrites the fields of
+  same-GUID notes, so `push` first exports every affected existing deck (with
+  scheduling) to `decks/_anki-backups/<timestamp>/` (gitignored, newest 10
+  kept). Something went wrong? Push the backup `.apkg` to restore the previous
+  content. Skip with `--no-backup`.
+- **Sync never happens implicitly** — only via an explicit `sync` /
+  `finish.sh --sync`.
+
 ## Updating an already-learned deck (without losing progress)
 
 Learning progress hangs off the Anki note GUID. To restructure cards you have

@@ -98,6 +98,21 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
 - Chosen over a headless AnkiWeb-login approach deliberately: local HTTP only,
   **no credentials ever** — keep it that way.
 
+### AnkiConnect safeguards (do not weaken)
+
+- **Action allowlist:** `invoke()` only accepts `SAFE_ACTIONS` (version,
+  requestPermission, deckNames, importPackage, exportPackage, sync).
+  Destructive AnkiConnect actions (deleteDecks, deleteNotes, …) are locked out —
+  never delete anything in a user's collection through this tool. Do **not**
+  set `ANKICONNECT_ALLOW_UNSAFE=1` on your own initiative.
+- **Auto-backup before push:** an import OVERWRITES fields of same-GUID notes,
+  so `push` first exports every affected existing deck (with scheduling) to
+  `decks/_anki-backups/<timestamp>/` (gitignored, newest 10 kept). Restore =
+  push the backup `.apkg`. Only use `--no-backup` if the user explicitly asks.
+- **Sync is explicit:** only on the user's request (`sync` / `finish.sh --sync`)
+  — and only after the import result has been confirmed as correct, so a bad
+  state never propagates to AnkiWeb/phone.
+
 ## Changing an existing/learned deck — WITHOUT losing progress
 
 If the user has **already learned** the cards in Anki (or edited them there) and
