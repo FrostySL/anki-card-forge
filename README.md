@@ -36,8 +36,8 @@ What makes the cards good rather than just numerous:
 - **[Claude Code](https://claude.com/claude-code)** (the AI that writes the cards)
 - **Docker** (packs cards into `.apkg`, renders previews, runs OCR)
 - *Optional:* the **AnkiConnect** add-on (code `2055492159`) to push decks into
-  Anki without the manual import dance — see
-  [Optional: drive Anki directly](#optional-drive-anki-directly-ankiconnect)
+  Anki without the manual import dance — see [ANKICONNECT.md](ANKICONNECT.md).
+  Everything works without it; it just saves clicks.
 
 Nothing else — all Python dependencies live inside the Docker images.
 
@@ -58,6 +58,8 @@ git config core.hooksPath .githooks      # commit guard (see below, one-off)
    and pick it. The cards land in a deck named after the topic (e.g. `Biology`),
    ready to study — scheduling, subdecks and styling are already baked in. On phones,
    sync the desktop collection to AnkiWeb and the deck appears in AnkiMobile/AnkiDroid.
+   (Tired of the import dialog? The optional [AnkiConnect route](ANKICONNECT.md)
+   imports and syncs for you.)
 
 The larger images (preview/OCR, source extraction) are built automatically the
 first time the corresponding `tools/*.sh` runs.
@@ -148,13 +150,12 @@ plus a target `.apkg` and it bundles a whole topic (and adds the coverage check)
 
 ## Optional: drive Anki directly (AnkiConnect)
 
-With the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on,
-finished decks go straight into your collection — no *File → Import* dance.
-Everything runs over local HTTP (`127.0.0.1:8765`): **no AnkiWeb credentials,
-nothing leaves your machine**, and the core pipeline works fine without it.
-
-One-off setup: in Anki, **Tools → Add-ons → Get Add-ons…**, enter code
-`2055492159`, restart Anki. Then, with Anki running:
+**Entirely optional** — without it you import the `.apkg` by double-click /
+*File → Import*, and nothing else in this repo changes. With the
+[AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on installed
+(code `2055492159`, then restart Anki), finished decks go straight into your
+collection over **local HTTP only** — no AnkiWeb credentials, nothing leaves
+your machine:
 
 ```bash
 python3 tools/anki_connect.py ping                    # is Anki + add-on reachable?
@@ -164,37 +165,17 @@ python3 tools/anki_connect.py sync                    # trigger AnkiWeb sync
 python3 tools/anki_connect.py mirror                  # local backup of all decks
 ```
 
-- `./tools/finish.sh … --push` imports the freshly built `.apkg` right after
-  validation; add `--sync` to also push it to AnkiWeb (and your phone).
-- `export` pulls a deck **with scheduling** — the automated entry into the
-  [progress-preserving rebuild](#updating-an-already-learned-deck-without-losing-progress)
-  below.
-- `mirror` snapshots every deck into `decks/_anki-mirror/` as `.apkg` **plus**
-  decoded, greppable `cards.json` (GUIDs included). The mirror is gitignored —
-  it stays a local backup and never lands in the repo.
+`./tools/finish.sh … --push [--prune] [--sync]` chains it into the build:
+validate, import, optionally remove cards you cut from the deck, optionally
+sync to AnkiWeb/phone.
 
-Built-in safeguards:
+Safety comes built in: destructive API actions are locked out entirely, every
+push backs up the affected decks first (`decks/_anki-backups/`, restore =
+push the backup), removing cards only happens via the explicit `--prune` with
+several guards, and sync never runs implicitly.
 
-- **Nothing destructive is callable.** The tool only allows a small safe list of
-  AnkiConnect actions (import, export, sync, deck listing); deleting decks or
-  notes through it is locked out by design. A plain import can never delete
-  anything either — Anki merges, so even pushing an empty deck of the same name
-  leaves your cards untouched.
-- **Automatic backup before every push.** An import overwrites the fields of
-  same-GUID notes, so `push` first exports every affected existing deck (with
-  scheduling) to `decks/_anki-backups/<timestamp>/` (gitignored, newest 10
-  kept). Something went wrong? Push the backup `.apkg` to restore the previous
-  content. Skip with `--no-backup`.
-- **Removing cards is explicit and reversible.** Because imports only merge,
-  cards you cut from a reworked deck would linger in Anki forever. The one
-  sanctioned way to remove them is `push --prune`: it deletes exactly the notes
-  whose GUIDs vanished from the package, lists each one, requires the fresh
-  backup as its diff baseline and restore path, and refuses outright if a deck
-  shares **no** GUID with the package (the telltale sign of a rebuild that lost
-  its GUIDs — pruning then would wipe the deck's learning progress).
-- **Sync never happens implicitly** — only via an explicit `sync` /
-  `finish.sh --sync`, so nothing broken propagates to AnkiWeb or your phone
-  before you have seen the import result.
+**Full documentation — setup, all commands, backups & restore, safeguards,
+workflows, troubleshooting: [ANKICONNECT.md](ANKICONNECT.md).**
 
 ## Updating an already-learned deck (without losing progress)
 
@@ -228,7 +209,7 @@ Details (cloze pitfalls, CSS updates): [CLAUDE.md](CLAUDE.md).
 | `tools/validate.sh` | check the `.apkg` in the real Anki engine (import + render) |
 | `tools/finish.sh` | shortcut: lint + grounding (+ coverage) + build + validate in one; `--push [--sync]` sends the result into Anki |
 | `tools/apkg_to_cards.py` | `.apkg` → `cards.json` back, GUIDs preserved (edit learned decks without losing progress) |
-| `tools/anki_connect.py` | optional: drive a running Anki via the AnkiConnect add-on — `push`/`export`/`sync`/`mirror`, local HTTP, no credentials |
+| `tools/anki_connect.py` | optional: drive a running Anki via the AnkiConnect add-on — `push`/`export`/`sync`/`mirror`, local HTTP, no credentials ([docs](ANKICONNECT.md)) |
 | `tools/test.sh` | test suite of the logic tools (stdlib `unittest`, no Docker/pip) |
 
 ## Folder structure
@@ -243,6 +224,7 @@ tests/                     stdlib test suite of the logic tools
 .githooks/                 pre-commit guard for the public repo
 reference/                 local Anki reference clones (not in the repo, see reference/README.md)
 CLAUDE.md                  the project guide Claude follows (workflow + card format)
+ANKICONNECT.md             optional AnkiConnect integration (push/export/sync/mirror)
 ```
 
 ## Privacy: your material stays local
