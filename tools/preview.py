@@ -65,6 +65,14 @@ def _short(text, n=60):
     return (plain[:n] + "…") if len(plain) > n else plain
 
 
+def _inline_imgs(html_text):
+    """Replaces local <img src="path"> with data URIs so the standalone
+    preview HTML shows the same embedded images as the built .apkg."""
+    return build_deck._IMG_SRC_RE.sub(
+        lambda m: m.group(1) + _data_uri(m.group(3)) + m.group(4), html_text
+    )
+
+
 def _collect(data):
     """-> list of (ctype, label, front_html, back_html)."""
     items = []
@@ -90,7 +98,7 @@ def _collect(data):
                 items.append((ctype, regions[n].get("label", f"#{n + 1}"), front, back))
         else:
             raise ValueError(f"Unknown type '{ctype}' (basic, cloze, typein, occlusion)")
-    return items
+    return [(t, label, _inline_imgs(front), _inline_imgs(back)) for t, label, front, back in items]
 
 
 def _png_name(i, ctype, side, theme):

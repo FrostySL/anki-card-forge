@@ -199,6 +199,12 @@ For occlusion cards, additionally run `preview.sh` and look at the PNGs (steps 2
 - **All text fields are rendered as HTML** (no escaping): to structure, use
   `<br>` (line break — a bare `\n` does NOT work), `<ul>/<ol>`, `<table>`.
   Structure improves readability, not the fact count per card (atomicity stays).
+- **Images in answers/explanations:** `<img src="extracted/<topic>/figures/….png">`
+  in any text field (path **relative to the project root**, like occlusion images).
+  The build embeds the file into the `.apkg` and rewrites the src to the file name;
+  `preview.sh` inlines it as a data URI; `lint_cards.py` errors if the path is
+  missing. http(s)/data URLs stay untouched. For "a picture on the back aids
+  understanding" — occlusion remains the format for spatial *retrieval*.
 - Optional `guid` per card: stable Anki note GUID. With it, a re-import updates an
   **already learned** note instead of duplicating it → **learning progress is
   preserved**. Use when reworking content from an Anki export (take the GUIDs from

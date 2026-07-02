@@ -57,6 +57,9 @@ _CSS = """
 hr#answer { margin: 1em 0; border: none; border-top: 1px solid var(--line); }
 .cloze { font-weight: bold; color: var(--link); }
 ul, ol { text-align: left; display: inline-block; }
+/* Images embedded in text fields (answers/explanations): never wider than the
+   card; white backing so PDF crops stay readable in night mode. */
+.card img { max-width: 100%; height: auto; background: #fff; border-radius: 4px; }
 
 /* Tables for structuring card content (mappings, comparisons) */
 table { border-collapse: collapse; margin: .5em auto; }
@@ -288,6 +291,29 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
 # templates above must be mirrored here.
 
 
+# <img src="..."> in any text field: like occlusion images, paths are relative
+# to the project root. The build embeds the file into the .apkg and rewrites the
+# src to the bare file name (Anki media is flat). http(s)/data URLs stay as-is.
+_IMG_SRC_RE = re.compile(r"""(<img\b[^>]*?\bsrc=(["']))(?!data:|https?:|//)([^"']+)(\2)""", re.IGNORECASE)
+
+_TEXT_FIELDS = ("front", "back", "text", "extra", "header", "explanation")
+
+
+def collect_field_images(card, media):
+    """Registers local <img> sources of a card in `media` and rewrites the
+    src attributes to the file's basename. Mutates `card` in place."""
+    for key in _TEXT_FIELDS:
+        val = card.get(key)
+        if not isinstance(val, str) or "<img" not in val.lower():
+            continue
+
+        def repl(m):
+            media.add(m.group(3))
+            return m.group(1) + os.path.basename(m.group(3)) + m.group(4)
+
+        card[key] = _IMG_SRC_RE.sub(repl, val)
+
+
 def _more_html(card):
     """Collapsed 'deep dive & source' box (or '' if nothing to show).
 
@@ -415,6 +441,7 @@ def _deck_from_data(data, media):
     for i, card in enumerate(data["cards"]):
         ctype = card.get("type", "basic")
         tags = card.get("tags", [])
+        collect_field_images(card, media)
         more = _more_html(card)
         # Optional stable GUID: allows a rebuild that UPDATES a note already
         # learned in Anki (same GUID) instead of duplicating it -> the learning
