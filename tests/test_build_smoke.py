@@ -35,6 +35,32 @@ class TestBuildSmoke(unittest.TestCase):
             self.assertTrue(out.exists())
             self.assertTrue(zipfile.is_zipfile(out))
 
+    def test_field_images_are_embedded(self):
+        with tempfile.TemporaryDirectory() as d:
+            img = Path(d) / "fig.png"
+            img.write_bytes(b"\x89PNG fake")
+            cards = Path(d) / "t.cards.json"
+            cards.write_text(json.dumps({"deck": "T::Img", "cards": [
+                {"type": "basic", "front": "Q",
+                 "back": f'A<br><img src="{img}">'},
+            ]}), encoding="utf-8")
+            out = Path(d) / "t.apkg"
+            bd.build(str(cards), str(out))
+            with zipfile.ZipFile(out) as z:
+                media = json.loads(z.read("media"))
+            self.assertIn("fig.png", media.values())
+
+
+class TestCollectFieldImages(unittest.TestCase):
+    @unittest.skipUnless(HAVE_GENANKI, "genanki not installed (build container only)")
+    def test_rewrites_local_src_keeps_remote(self):
+        card = {"back": '<img src="a/b/fig.png"> <img src="https://x/y.png">'}
+        media = set()
+        bd.collect_field_images(card, media)
+        self.assertEqual(media, {"a/b/fig.png"})
+        self.assertIn('<img src="fig.png">', card["back"])
+        self.assertIn('src="https://x/y.png"', card["back"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,9 @@ import re
 import sys
 
 _CLOZE_RE = re.compile(r"\{\{c(\d+)::.+?\}\}", re.DOTALL)
+# Local <img src="..."> in text fields (embedded by the build; must exist).
+_IMG_SRC_RE = re.compile(r"""<img\b[^>]*?\bsrc=(["'])(?!data:|https?:|//)([^"']+)\1""", re.IGNORECASE)
+_TEXT_FIELDS = ("front", "back", "text", "extra", "header", "explanation")
 _LONG_ANSWER = 350  # chars: above this, warn "answer may be too long"
 
 # Allowed fields — unknown keys (typos like "explaination") are silently dropped
@@ -98,6 +101,13 @@ def lint(cards_path):
                 err(i, f"unknown mode '{mode}' (hide-one | hide-all).")
         else:
             err(i, f"unknown type '{ctype}' (basic | cloze | typein | occlusion).")
+
+        for key in _TEXT_FIELDS:
+            val = card.get(key)
+            if isinstance(val, str):
+                for m in _IMG_SRC_RE.finditer(val):
+                    if not os.path.exists(m.group(2)):
+                        err(i, f"'{key}': <img> not found: {m.group(2)}")
 
         if ctype in _TYPE_KEYS:
             for key in sorted(set(card) - _COMMON_KEYS - _TYPE_KEYS[ctype]):

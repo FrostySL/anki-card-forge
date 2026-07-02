@@ -58,6 +58,29 @@ class TestLint(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("unknown type", out)
 
+    def test_field_img_missing_errors(self):
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q", "back": 'A<br><img src="nope.png">'}
+        ]})
+        self.assertEqual(rc, 1)
+        self.assertIn("<img> not found: nope.png", out)
+
+    def test_field_img_present_passes(self):
+        rc, _ = _run(
+            {"deck": "D", "cards": [
+                {"type": "basic", "front": "Q", "back": 'A<br><img src="fig.png">'}
+            ]},
+            extra_files={"fig.png": b"\x89PNG"},
+        )
+        self.assertEqual(rc, 0)
+
+    def test_field_img_remote_and_data_uris_ignored(self):
+        rc, _ = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q",
+             "back": 'A<img src="https://x.example/a.png"><img src="data:image/png;base64,AA==">'}
+        ]})
+        self.assertEqual(rc, 0)
+
     def test_occlusion_missing_image_errors(self):
         rc, out = _run({"deck": "D", "cards": [
             {"type": "occlusion", "regions": [{"label": "x", "x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1}]}]})
