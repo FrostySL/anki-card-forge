@@ -97,6 +97,8 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
 - Endpoint override via `ANKICONNECT_URL` (default `http://127.0.0.1:8765`).
 - Chosen over a headless AnkiWeb-login approach deliberately: local HTTP only,
   **no credentials ever** — keep it that way.
+- Full user-facing documentation (setup, commands, backups/restore,
+  troubleshooting): `ANKICONNECT.md` — keep it in sync when changing the tool.
 
 ### AnkiConnect safeguards (do not weaken)
 
