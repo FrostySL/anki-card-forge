@@ -14,6 +14,18 @@ import sys
 _CLOZE_RE = re.compile(r"\{\{c(\d+)::.+?\}\}", re.DOTALL)
 _LONG_ANSWER = 350  # Zeichen: darueber Warnung "Antwort evtl. zu umfangreich"
 
+# Erlaubte Felder – unbekannte Keys (Tippfehler wie "explaination") werden beim Build
+# stillschweigend ignoriert, der Inhalt waere weg. Deshalb hier warnen.
+_DECK_KEYS = {"deck", "cards"}
+_COMMON_KEYS = {"type", "tags", "guid", "explanation", "source"}
+_TYPE_KEYS = {
+    "basic": {"front", "back", "reverse"},
+    "typein": {"front", "back"},
+    "cloze": {"text", "extra"},
+    "occlusion": {"image", "mode", "header", "extra", "regions"},
+}
+_REGION_KEYS = {"label", "x", "y", "w", "h"}
+
 
 def lint(cards_path):
     errors, warnings = [], []
@@ -32,6 +44,8 @@ def lint(cards_path):
     cards = data.get("cards") or []
     if not cards:
         errors.append("  [FEHLER] keine 'cards' vorhanden.")
+    for key in sorted(set(data) - _DECK_KEYS):
+        warnings.append(f"  [warn]  unbekanntes Feld {key!r} auf Deck-Ebene – wird ignoriert.")
 
     seen_fronts = {}
     for i, card in enumerate(cards):
@@ -77,11 +91,20 @@ def lint(cards_path):
                     warn(i, f"Bereich {n}: y+h={y + h:.3f} > 1 – ragt unten raus.")
                 if not (r.get("label") or "").strip():
                     warn(i, f"Bereich {n}: kein 'label' (Antwort bleibt leer).")
+                for key in sorted(set(r) - _REGION_KEYS):
+                    warn(i, f"Bereich {n}: unbekanntes Feld '{key}' – wird ignoriert.")
             mode = card.get("mode", "hide-one")
             if mode not in ("hide-one", "hide-all"):
                 err(i, f"unbekannter mode '{mode}' (hide-one | hide-all).")
         else:
             err(i, f"unbekannter type '{ctype}' (basic | cloze | typein | occlusion).")
+
+        if ctype in _TYPE_KEYS:
+            for key in sorted(set(card) - _COMMON_KEYS - _TYPE_KEYS[ctype]):
+                if key == "reverse":
+                    warn(i, f"'reverse' wirkt nur bei type 'basic' (hier '{ctype}') – wird ignoriert.")
+                else:
+                    warn(i, f"unbekanntes Feld '{key}' – wird beim Build ignoriert (Tippfehler?).")
 
     for front, idxs in seen_fronts.items():
         if len(idxs) > 1:

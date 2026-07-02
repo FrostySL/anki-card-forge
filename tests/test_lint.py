@@ -81,6 +81,44 @@ class TestLint(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("doppelte Frage", out)
 
+    def test_unknown_card_field_warns(self):
+        # Tippfehler-Feld ("explaination") wuerde beim Build stillschweigend verschwinden.
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q", "back": "A", "explaination": "weg damit"}]})
+        self.assertEqual(rc, 0)
+        self.assertIn("unbekanntes Feld 'explaination'", out)
+
+    def test_reverse_on_cloze_warns(self):
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "cloze", "text": "a {{c1::b}}", "reverse": True}]})
+        self.assertEqual(rc, 0)
+        self.assertIn("'reverse' wirkt nur bei type 'basic'", out)
+
+    def test_unknown_deck_field_warns(self):
+        rc, out = _run({"deck": "D", "Deck": "Tippfehler", "cards": [
+            {"type": "basic", "front": "Q", "back": "A"}]})
+        self.assertEqual(rc, 0)
+        self.assertIn("unbekanntes Feld 'Deck' auf Deck-Ebene", out)
+
+    def test_unknown_region_field_warns(self):
+        rc, out = _run(
+            {"deck": "D", "cards": [{"type": "occlusion", "image": "i.png",
+                "regions": [{"label": "x", "x": 0.1, "y": 0.1, "w": 0.1, "h": 0.1, "lable": "y"}]}]},
+            extra_files={"i.png": b"x"},
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn("unbekanntes Feld 'lable'", out)
+
+    def test_all_known_fields_pass_clean(self):
+        # Vollausstattung mit erlaubten Feldern darf KEINE Warnung ausloesen.
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q", "back": "A", "reverse": True,
+             "explanation": "e", "source": "s", "tags": ["t"], "guid": "g"},
+            {"type": "cloze", "text": "a {{c1::b}}", "extra": "x",
+             "explanation": "e", "source": "s", "tags": ["t"]}]})
+        self.assertEqual(rc, 0)
+        self.assertIn("alles ok", out)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -58,12 +58,19 @@ Auf **jeder** Karte optional eine zugeklappte Box „Vertiefung & Quelle"
 
 | Tool | Zweck |
 |---|---|
-| `tools/build.sh` | Karten-JSON → `.apkg` (genanki) |
-| `tools/extract.sh` | PDF → Markdown (parallele OCR für Scans) |
-| `tools/preview.sh` | Karten → PNG-Vorschau (headless Chromium, Feedbackloop) |
+| `tools/prep.sh` | Quelle aufbereiten in einem Schritt: `extract` + Abbildungs-Index + `figextract` |
+| `tools/extract.sh` | PDF → Markdown (parallele OCR für Scans; inkl. Abbildungs-Index via `figindex.py`) |
+| `tools/figextract.sh` | Abbildungen aus dem PDF schneiden → PNG-Crops + Manifest |
 | `tools/detect.sh` | OCR (Tesseract): Label-Boxen für Image Occlusion erkennen |
-| `tools/lint_cards.py` | schnelle Inhalts-/Struktur-Prüfung |
+| `tools/lint_cards.py` | schnelle Inhalts-/Struktur-Prüfung (reines Python, ohne Docker) |
+| `tools/grounding_check.py` | Anti-Halluzination: stehen die Antworten wirklich im Quelltext? |
+| `tools/coverage.py` | Beinah-Dubletten + Quellseiten-Abdeckung über ein ganzes Thema |
+| `tools/build.sh` | Karten-JSON → `.apkg` (genanki); bündelt auch mehrere JSONs in eine Datei |
+| `tools/preview.sh` | Karten → PNG-Vorschau hell + Nachtmodus (headless Chromium, Feedbackloop) |
 | `tools/validate.sh` | `.apkg` in echter Anki-Engine prüfen (Import + Render) |
+| `tools/finish.sh` | Abkürzung: Lint + Grounding (+ Coverage) + Build + Validate in einem |
+| `tools/apkg_to_cards.py` | `.apkg` → `cards.json` zurück, GUIDs bleiben (gelernte Decks ändern ohne Fortschrittsverlust) |
+| `tools/test.sh` | Testsuite der Logik-Tools (stdlib-`unittest`, ohne Docker/pip) |
 
 ## Ordnerstruktur
 
@@ -71,7 +78,7 @@ Auf **jeder** Karte optional eine zugeklappte Box „Vertiefung & Quelle"
 quellen/<Thema>/          deine Quelldateien (lokal, nicht versioniert)
 aufbereitet/<Thema>/      Markdown-Extrakte der Quellen (lokal, via extract.sh)
 decks/<Thema>/            erzeugte .cards.json + .apkg (lokal; nur Beispiel im Repo)
-tools/                    build / extract / preview / detect / lint / validate
+tools/                    Aufbereitung, Bau, Prüfung — siehe Werkzeug-Tabelle oben
 .claude/skills/kartenbau/ evidenzbasierte Methodik fürs Kartenschreiben
 reference/                lokale Anki-Nachschlagewerke (nicht im Repo, s. reference/README.md)
 CLAUDE.md                 Anleitung + Karten-Format für Claude
