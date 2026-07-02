@@ -16,6 +16,11 @@ decks/**/_rebuild/
 decks/**/*.cards.json
 !decks/example.cards.json
 
+# Screen recordings (too large for the repo — publish the derived GIF instead)
+docs/**/*.mp4
+docs/**/*.mkv
+docs/**/*.webm
+
 # Python
 __pycache__/
 *.py[cod]

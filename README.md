@@ -4,6 +4,15 @@ Turn **lecture scripts, books, slides and notes** into high-quality **Anki
 flashcards** — together with [Claude Code](https://claude.com/claude-code).
 Works for **any subject** and produces cards in **any language you ask for**.
 
+<p align="center">
+  <img src="docs/img/example-review.gif" width="600"
+       alt="Reviewing a generated deck in Anki: basic cards and image-occlusion cards on a circuit diagram">
+</p>
+
+<p align="center"><i>A deck forged from the Wikipedia article on electric current,
+in review — including image-occlusion cards on the article's circuit diagram.
+<a href="#example-one-prompt-start-to-finish">Made with one prompt ↓</a></i></p>
+
 ## The idea
 
 The AI is Claude itself: you drop a file into `sources/<topic>/`, tell Claude in
@@ -28,6 +37,37 @@ What makes the cards good rather than just numerous:
   mode) and inspected before delivery; image-occlusion masks are checked visually.
 - **Real-engine validation** — every `.apkg` is imported and rendered with Anki's
   actual backend before it is handed to you.
+
+## Example: one prompt, start to finish
+
+The deck in the GIF above was made like this — a real, unedited session.
+
+**1. Get a source.** Anything that fits in a PDF or text file. Here: the
+Wikipedia article [Electric current](https://en.wikipedia.org/wiki/Electric_current)
+as PDF, plus the article's circuit diagram in high resolution (a CC0 file from
+Wikimedia Commons) for the image-occlusion cards.
+
+![The Electric current Wikipedia article, opened as PDF](docs/img/example-1-source-pdf.png)
+
+**2. Drop it into `sources/<topic>/`:**
+
+![The PDF placed at sources/Physics/electric_current.pdf](docs/img/example-2-sources-folder.png)
+
+**3. Ask.** One sentence in the Claude Code chat:
+
+![Prompt: Make 10 English Anki cards from sources/Physics/electric_current.pdf with image occlusion. Import the deck into Anki via AnkiConnect.](docs/img/example-3-prompt.png)
+
+**4. Claude does the rest** — extracts the PDF, authors the cards following the
+methodology, places the occlusion masks on the circuit diagram, runs the whole
+quality pipeline on its own work, and (since AnkiConnect was installed) imports
+the finished deck straight into Anki. Expect this to take a while — several
+minutes even for a small deck; the time goes into the self-checks, not just
+the writing:
+
+![Claude's final report: 10 cards built, checked and imported into Anki](docs/img/example-4-result.png)
+
+**5. Study.** That is the GIF at the top: 7 basic cards plus 3 image-occlusion
+cards masking *v*, *i* and *R* on the circuit — fresh out of the forge.
 
 ## Requirements
 
@@ -223,6 +263,7 @@ tools/                     preparation, build, checks — see the tools table
 tests/                     stdlib test suite of the logic tools
 .claude/skills/card-authoring/  evidence-based methodology for writing cards
 .githooks/                 pre-commit guard for the public repo
+docs/img/                  images/GIF for this README (recordings stay local)
 reference/                 local Anki reference clones (not in the repo, see reference/README.md)
 CLAUDE.md                  the project guide Claude follows (workflow + card format)
 ANKICONNECT.md             optional AnkiConnect integration (push/export/sync/mirror)
