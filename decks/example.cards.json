@@ -1,0 +1,17 @@
+{
+  "deck": "Anki-Karten::Example",
+  "cards": [
+    {
+      "type": "basic",
+      "front": "What is an .apkg file?",
+      "back": "An Anki package format – contains a complete deck with cards and can be imported into Anki with a double-click.",
+      "tags": ["demo"]
+    },
+    {
+      "type": "cloze",
+      "text": "The cards in this project are authored by {{c1::Claude}} and packed into an .apkg by the {{c2::genanki}} library.",
+      "extra": "No external LLM call needed.",
+      "tags": ["demo"]
+    }
+  ]
+}

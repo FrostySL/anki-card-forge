@@ -1,21 +1,21 @@
-# reference/ — lokale Nachschlagewerke (nicht im Repo)
+# reference/ — local reference material (not in the repo)
 
-Dieser Ordner dient Claude als **Nachschlagewerk** zu Anki. Der Inhalt ist
-**fremder Code mit eigener Lizenz** und wird daher **nicht** mitversioniert
-(siehe `.gitignore`) — nur diese Hinweisdatei.
+This folder serves Claude as a **reference** on Anki. The content is
+**third-party code with its own license** and is therefore **not** versioned
+here (see `.gitignore`) — only this note file is.
 
-Wer die Nachschlagewerke lokal haben möchte (optional, nur als Referenz; für die
-Kartenerzeugung selbst nicht nötig):
+If you want the reference material locally (optional, purely for lookup; not
+needed for card generation itself):
 
 ```bash
-# Anki-Quellcode (AGPL-3.0) — flacher Klon reicht
+# Anki source code (AGPL-3.0) — a shallow clone is enough
 git clone --depth 1 https://github.com/ankitects/anki reference/anki
 
-# Anki-Handbuch
+# Anki manual
 git clone --depth 1 https://github.com/ankitects/anki-manual reference/anki-manual
 ```
 
-> **Lizenz-Hinweis:** Anki steht unter der **GNU AGPL-3.0**. Dieses Projekt
-> verwendet **keinen** Anki-Quellcode — es erzeugt `.apkg`-Dateien ausschließlich
-> über die Bibliothek [`genanki`](https://github.com/kerrickstaley/genanki) (MIT).
-> Die Inhalte unter `reference/` sind reines lokales Nachschlagematerial.
+> **License note:** Anki is licensed under the **GNU AGPL-3.0**. This project
+> uses **no** Anki source code — it produces `.apkg` files exclusively via the
+> [`genanki`](https://github.com/kerrickstaley/genanki) library (MIT). The
+> content under `reference/` is purely local lookup material.

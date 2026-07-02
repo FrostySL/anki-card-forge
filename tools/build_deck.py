@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Baut aus einer oder mehreren Karten-JSON-Dateien ein Anki-.apkg-Paket.
+"""Builds an Anki .apkg package from one or more card JSON files.
 
-Aufruf:
-    python build_deck.py <cards.json> [weitere.cards.json ...] [output.apkg]
+Usage:
+    python build_deck.py <cards.json> [more.cards.json ...] [output.apkg]
 
-Mehrere Eingabedateien landen als je eigenes Deck in EINER .apkg (z. B. Text-
-Karten + Abbildungs-Deck zusammen). Die Ausgabe ist das (einzige) *.apkg-Argument;
-fehlt es, wird der Name aus der ersten Eingabe abgeleitet.
+Multiple input files end up as separate decks inside ONE .apkg (e.g. text cards
+plus a figures deck together). The output is the (single) *.apkg argument; if
+omitted, the name is derived from the first input.
 
-Wird i. d. R. ueber tools/build.sh im Docker-Container aufgerufen, z. B.:
-    ./tools/build.sh decks/skript.cards.json
-    ./tools/build.sh decks/text.cards.json decks/bilder.cards.json decks/komplett.apkg
+Usually invoked via tools/build.sh inside the Docker container, e.g.:
+    ./tools/build.sh decks/script.cards.json
+    ./tools/build.sh decks/text.cards.json decks/images.cards.json decks/full.apkg
 
-Karten-Typen: "basic", "cloze", "occlusion" (Bild mit verdeckten Bereichen).
-JSON-Format siehe CLAUDE.md.
+Card types: "basic", "cloze", "typein", "occlusion" (image with hidden regions).
+JSON format: see CLAUDE.md.
 """
 import hashlib
 import html
@@ -26,10 +26,10 @@ import genanki
 
 
 def stable_id(text: str) -> int:
-    """Deterministische ID im von Anki erwarteten 32-bit-Bereich (1 .. 2^31-1).
+    """Deterministic ID in the 32-bit range Anki expects (1 .. 2^31-1).
 
-    Gleicher Name -> gleiche ID, damit erneutes Bauen das Deck/Model
-    aktualisiert statt zu duplizieren.
+    Same name -> same ID, so rebuilding updates the deck/model instead of
+    duplicating it.
     """
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return int(digest[:8], 16) % (2**31 - 1) + 1
@@ -37,10 +37,10 @@ def stable_id(text: str) -> int:
 
 _CSS = """
 .card {
-  /* Bewusst KEINE feste color/background: Anki faerbt Text+Hintergrund je nach
-     Theme selbst (dunkel im Nachtmodus, hell sonst). Wir setzen nur theme-neutrale
-     Akzente -> durchscheinende Graustufen + ein Blau, das hell UND dunkel lesbar
-     ist. So funktioniert der Nachtmodus, ohne auf eine .nightMode-Klasse zu setzen. */
+  /* Deliberately NO fixed color/background: Anki colors text+background per
+     theme itself (dark in night mode, light otherwise). We only set theme-neutral
+     accents -> translucent grays plus a blue that is readable on light AND dark.
+     That way night mode just works, without relying on a .nightMode class. */
   --muted: #8a8a8a;
   --line: rgba(128, 128, 128, .5);
   --link: #4c8dff;
@@ -58,12 +58,12 @@ hr#answer { margin: 1em 0; border: none; border-top: 1px solid var(--line); }
 .cloze { font-weight: bold; color: var(--link); }
 ul, ol { text-align: left; display: inline-block; }
 
-/* Tabellen zum Strukturieren von Karteninhalt (Zuordnungen, Vergleiche) */
+/* Tables for structuring card content (mappings, comparisons) */
 table { border-collapse: collapse; margin: .5em auto; }
 th, td { border: 1px solid var(--line); padding: .3em .6em; text-align: left; vertical-align: top; }
 th { background: var(--th); }
 
-/* --- Image Occlusion (Bild mit verdeckten Bereichen) --- */
+/* --- Image occlusion (image with hidden regions) --- */
 .io-head { text-align: center; font-weight: bold; margin-bottom: .5em; }
 .io-extra { margin-top: .75em; }
 .io-wrap { position: relative; display: inline-block; max-width: 100%; }
@@ -81,7 +81,7 @@ th { background: var(--th); }
   color: #c62828; font-weight: bold; font-size: 1.05em;
 }
 
-/* --- Klappbox auf der Rueckseite: Vertiefung & Quelle (elaboratives Feedback) --- */
+/* --- Collapsed box on the back: deep dive & source (elaborative feedback) --- */
 .more { margin-top: .9em; border-top: 1px solid var(--line); padding-top: .4em; font-size: .92em; }
 .more > summary { cursor: pointer; color: var(--link); font-weight: bold; list-style: none; }
 .more > summary::before { content: "▸ "; }
@@ -89,11 +89,11 @@ th { background: var(--th); }
 .more-expl { margin: .5em 0; }
 .more-src { color: var(--muted); font-style: italic; }
 
-/* type-in: Eingabevergleich von Anki */
+/* type-in: Anki's answer comparison */
 .typed-bad { color: #c62828; }
 .typed-good { color: #2e7d32; }
 
-/* --- Code & Tasten (Quelltext, Syntax, Shortcuts) --- */
+/* --- Code & keys (source code, syntax, shortcuts) --- */
 code, kbd, pre, samp { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 :not(pre) > code { background: var(--box); padding: .08em .35em; border-radius: 3px; font-size: .9em; }
 pre { background: var(--box); padding: .7em .9em; border-radius: 6px; overflow-x: auto; text-align: left; margin: .6em 0; }
@@ -101,32 +101,36 @@ pre code { background: none; padding: 0; font-size: .92em; line-height: 1.4; }
 kbd { background: var(--box); border: 1px solid var(--line); border-bottom-width: 2px;
       border-radius: 4px; padding: .05em .4em; font-size: .85em; white-space: nowrap; }
 
-/* --- Lern-Callouts: NUR auf Rueckseite/explanation, nie auf der Frage (Hint-Leak).
-   rgba-Hintergruende sehen hell UND im Nachtmodus gut aus. --- */
+/* --- Learning callouts: ONLY on the back/explanation, never on the question
+   (hint leak). rgba backgrounds look good in light AND night mode.
+   The German class names (merke/achtung/beispiel/eselsbruecke/kontrast) are
+   legacy aliases kept for existing decks — use the English names. --- */
+.note, .pitfall, .example, .mnemonic,
 .merke, .achtung, .beispiel, .eselsbruecke {
   text-align: left; margin: .6em 0; padding: .5em .7em .5em 2.1em;
   border-radius: 6px; border-left: 4px solid; position: relative;
 }
-.merke        { background: rgba( 67,160, 71,.14); border-color: #43a047; }
-.achtung      { background: rgba(251,140,  0,.14); border-color: #fb8c00; }
-.beispiel     { background: rgba( 30,136,229,.14); border-color: #1e88e5; }
-.eselsbruecke { background: rgba(142, 36,170,.16); border-color: #8e24aa; }
+.note, .merke               { background: rgba( 67,160, 71,.14); border-color: #43a047; }
+.pitfall, .achtung          { background: rgba(251,140,  0,.14); border-color: #fb8c00; }
+.example, .beispiel         { background: rgba( 30,136,229,.14); border-color: #1e88e5; }
+.mnemonic, .eselsbruecke    { background: rgba(142, 36,170,.16); border-color: #8e24aa; }
+.note::before, .pitfall::before, .example::before, .mnemonic::before,
 .merke::before, .achtung::before, .beispiel::before, .eselsbruecke::before {
   position: absolute; left: .55em; top: .5em; font-weight: bold;
 }
-.merke::before        { content: "\2605"; color: #43a047; }  /* ★ */
-.achtung::before      { content: "\26A0"; color: #fb8c00; }  /* ⚠ */
-.beispiel::before     { content: "\276F"; color: #1e88e5; }  /* ❯ */
-.eselsbruecke::before { content: "\1F9E0"; }                 /* 🧠 */
-/* Kontrast-Marker: bei Schwesterkarten das UNTERSCHEIDENDE Merkmal hervorheben */
-.kontrast { background: rgba(255,193,7,.4); border-radius: 3px; padding: 0 .2em; font-weight: bold; }
+.note::before, .merke::before             { content: "\2605"; color: #43a047; }  /* ★ */
+.pitfall::before, .achtung::before        { content: "\26A0"; color: #fb8c00; }  /* ⚠ */
+.example::before, .beispiel::before       { content: "\276F"; color: #1e88e5; }  /* ❯ */
+.mnemonic::before, .eselsbruecke::before  { content: "\1F9E0"; }                 /* 🧠 */
+/* Contrast marker: on sister cards, highlight the DISTINGUISHING feature */
+.contrast, .kontrast { background: rgba(255,193,7,.4); border-radius: 3px; padding: 0 .2em; font-weight: bold; }
 
-/* --- Abruf-Helfer --- */
-/* Gestufter Hinweis (auch VORNE ok): minimaler Cue, zugeklappt -> Abruf bleibt. */
+/* --- Retrieval helpers --- */
+/* Graded hint (ok on the FRONT too): minimal cue, collapsed -> retrieval stays intact. */
 .hint { margin: .5em 0; font-size: .92em; }
 .hint > summary { cursor: pointer; color: var(--link); font-weight: bold; list-style: none; }
 .hint > summary::before { content: "\1F4A1 "; }  /* 💡 */
-/* Prozess-/Flusskette: <div class="flow"><span class="step">A</span>
+/* Process/flow chain: <div class="flow"><span class="step">A</span>
    <span class="arrow">\2192</span><span class="step">B</span></div> */
 .flow { display: flex; flex-wrap: wrap; gap: .3em; align-items: center;
         justify-content: center; text-align: center; margin: .6em 0; }
@@ -134,6 +138,11 @@ kbd { background: var(--box); border: 1px solid var(--line); border-bottom-width
               border-radius: 6px; padding: .2em .55em; }
 .flow .arrow { color: var(--muted); padding: 0 .1em; }
 """
+
+# NOTE: The stable_id seeds and the note type display names ("Anki-Karten ...")
+# are deliberately kept unchanged: they determine the model IDs/names inside
+# users' existing Anki collections. Renaming them would make re-imports create
+# duplicate note types and disconnect already learned decks.
 
 BASIC_MODEL = genanki.Model(
     stable_id("anki-karten:basic-model:v1"),
@@ -164,7 +173,7 @@ CLOZE_MODEL = genanki.Model(
     css=_CSS,
 )
 
-# Eingabe pruefen: vorne tippt man die Antwort, Anki vergleicht ({{type:Back}}).
+# Typed answers: you type the answer on the front, Anki compares ({{type:Back}}).
 TYPEIN_MODEL = genanki.Model(
     stable_id("anki-karten:typein-model:v1"),
     "Anki-Karten Type-in",
@@ -179,7 +188,7 @@ TYPEIN_MODEL = genanki.Model(
     css=_CSS,
 )
 
-# Bidirektional: eine Notiz -> zwei Karten (Vor- und Rueckrichtung).
+# Bidirectional: one note -> two cards (forward and reverse direction).
 REVERSED_MODEL = genanki.Model(
     stable_id("anki-karten:reversed-model:v1"),
     "Anki-Karten Basic+Reversed",
@@ -199,9 +208,9 @@ REVERSED_MODEL = genanki.Model(
     css=_CSS,
 )
 
-# Eigenstaendige Image-Occlusion-Karte: Vorder-/Rueckseite sind bereits
-# fertig gerendertes HTML (Bild + Overlay-Rechtecke). Unabhaengig von Ankis
-# internem IO-Format -> laeuft in jeder Anki-Version.
+# Self-contained image occlusion card: front/back are pre-rendered HTML
+# (image + overlay rectangles). Independent of Anki's internal IO format
+# -> works in every Anki version.
 OCCLUSION_MODEL = genanki.Model(
     stable_id("anki-karten:occlusion-model:v1"),
     "Anki-Karten Image Occlusion",
@@ -221,8 +230,8 @@ def _pct(value: float) -> str:
     return f"{float(value) * 100:.4f}%"
 
 
-# Etwas Luft um jede Box, damit Maske/Umrandung den (oft kleinen) Text nicht
-# hauteng einklemmen -> deutlich besser erkenn- und lesbar.
+# A bit of air around each box so mask/outline don't squeeze the (often small)
+# text skin-tight -> much easier to recognize and read.
 _BOX_PAD = 0.01
 
 
@@ -235,11 +244,11 @@ def _box_style(r):
 
 
 def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
-    """Rendert eine Seite einer Occlusion-Karte.
+    """Renders one side of an occlusion card.
 
-    reveal=False -> Vorderseite (Frage), reveal=True -> Rueckseite (Antwort).
-    mode: "hide-one" (nur Zielbereich verdeckt) oder
-          "hide-all"  (alle verdeckt, nur Zielbereich wird aufgedeckt).
+    reveal=False -> front (question), reveal=True -> back (answer).
+    mode: "hide-one" (only the target region is masked) or
+          "hide-all"  (all masked, only the target gets revealed).
     """
     parts = []
     if header:
@@ -249,16 +258,16 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
 
     for i, r in enumerate(regions):
         pos = _box_style(r)
-        if not reveal:  # Vorderseite
+        if not reveal:  # front
             masked = True if mode == "hide-all" else (i == target)
-        else:  # Rueckseite
+        else:  # back
             masked = (i != target) if mode == "hide-all" else False
 
         if masked:
             parts.append(f'<div class="io-mask" style="{pos}"></div>')
         elif reveal and i == target:
-            # Nur umranden – KEIN Text ueber dem Bild (sonst Ueberlagerung mit der
-            # Beschriftung, die schon im Bild steht). Antwort kommt als Unterschrift.
+            # Outline only – NO text over the image (it would overlap the label
+            # already printed in the image). The answer goes below as a caption.
             parts.append(f'<div class="io-answer" style="{pos}"></div>')
 
     parts.append("</div>")
@@ -271,20 +280,20 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
     return "".join(parts)
 
 
-# --- Render-Helfer: erzeugen das fertige Vorder-/Rueckseiten-HTML einer Karte. ---
-# Occlusion teilt sich dieses HTML 1:1 mit dem .apkg (Template ist nur {{Front}}/
-# {{Back}}). Fuer basic/cloze speichert genanki dagegen ROHE Felder und wendet das
-# Template selbst an; render_basic/render_cloze spiegeln dieses Template, damit die
-# Vorschau (tools/preview.py) genauso aussieht wie die Anki-Karte. Aenderungen an den
-# Model-Templates oben muessen hier mitgezogen werden.
+# --- Render helpers: produce the final front/back HTML of a card. ---
+# Occlusion shares this HTML 1:1 with the .apkg (its template is just {{Front}}/
+# {{Back}}). For basic/cloze, genanki stores RAW fields and applies the template
+# itself; render_basic/render_cloze mirror that template so the preview
+# (tools/preview.py) looks exactly like the Anki card. Changes to the model
+# templates above must be mirrored here.
 
 
 def _more_html(card):
-    """Zugeklappte 'Vertiefung & Quelle'-Box (oder '' wenn nichts vorhanden).
+    """Collapsed 'deep dive & source' box (or '' if nothing to show).
 
-    Erscheint NUR auf der Rueckseite, standardmaessig zu -> elaboratives Feedback
-    nach dem Abruf, ohne die Frage zu erleichtern. 'explanation' darf HTML enthalten,
-    'source' wird als Text escaped.
+    Appears ONLY on the back, collapsed by default -> elaborative feedback after
+    retrieval without making the question easier. 'explanation' may contain HTML,
+    'source' is escaped as text.
     """
     expl = (card.get("explanation") or "").strip()
     src = (card.get("source") or "").strip()
@@ -294,25 +303,25 @@ def _more_html(card):
     if expl:
         parts.append(f'<div class="more-expl">{expl}</div>')
     if src:
-        parts.append(f'<div class="more-src">Quelle: {html.escape(src)}</div>')
+        parts.append(f'<div class="more-src">Source: {html.escape(src)}</div>')
     if expl and src:
-        label = "Vertiefung &amp; Quelle"
+        label = "Details &amp; source"
     elif expl:
-        label = "Vertiefung"
+        label = "Details"
     else:
-        label = "Quelle"
+        label = "Source"
     return f'<details class="more"><summary>{label}</summary>{"".join(parts)}</details>'
 
 
 def render_basic(card):
-    """(front, back) — spiegelt das afmt von BASIC_MODEL (+ Klappbox)."""
+    """(front, back) — mirrors the afmt of BASIC_MODEL (+ collapsed box)."""
     front = card["front"]
     back = f'{front}<hr id="answer">{card["back"]}{_more_html(card)}'
     return front, back
 
 
 def render_reversed(card):
-    """Liste [(front, back), ...] fuer beide Richtungen (REVERSED_MODEL)."""
+    """List [(front, back), ...] for both directions (REVERSED_MODEL)."""
     f, b, more = card["front"], card["back"], _more_html(card)
     return [
         (f, f'{f}<hr id="answer">{b}{more}'),
@@ -321,10 +330,10 @@ def render_reversed(card):
 
 
 def render_typein(card):
-    """(front, back) fuer TYPEIN_MODEL. In der Vorschau ist das Eingabefeld nur
-    angedeutet (Ankis {{type:}}-Vergleich gibt es im Browser nicht)."""
+    """(front, back) for TYPEIN_MODEL. The preview only hints at the input field
+    (Anki's {{type:}} comparison does not exist in the browser)."""
     front = card["front"]
-    front_preview = f'{front}<br><br><i style="color:#888">[Antwort eintippen]</i>'
+    front_preview = f'{front}<br><br><i style="color:#888">[type the answer]</i>'
     back = f'{front}<hr id="answer">{card["back"]}{_more_html(card)}'
     return front_preview, back
 
@@ -345,15 +354,15 @@ def _render_cloze_side(text, active, reveal):
             if reveal:
                 return f'<span class="cloze">{answer}</span>'
             return f'<span class="cloze">[{hint or "..."}]</span>'
-        return answer  # nicht-aktive Cloze: Inhalt normal zeigen
+        return answer  # inactive cloze: show content normally
 
     return _CLOZE_RE.sub(repl, text)
 
 
 def render_cloze(card):
-    """Liste von (front, back) — eine pro cN, spiegelt Ankis Cloze-Verhalten."""
+    """List of (front, back) — one per cN, mirrors Anki's cloze behavior."""
     text = card["text"]
-    tail = card.get("extra", "") + _more_html(card)  # entspricht dem Extra-Feld
+    tail = card.get("extra", "") + _more_html(card)  # corresponds to the Extra field
     out = []
     for num in _cloze_numbers(text):
         front = _render_cloze_side(text, num, reveal=False)
@@ -365,8 +374,8 @@ def render_cloze(card):
 
 
 def render_occlusion(card, img_src):
-    """Liste von (front, back) — eine pro Bereich. img_src = Bildquelle (Dateiname
-    fuers .apkg oder data:-URI fuer die self-contained Vorschau)."""
+    """List of (front, back) — one per region. img_src = image source (file name
+    for the .apkg or a data: URI for the self-contained preview)."""
     regions = card["regions"]
     mode = card.get("mode", "hide-one")
     header = card.get("header", "")
@@ -381,7 +390,7 @@ def render_occlusion(card, img_src):
 
 
 def _add_occlusion_notes(deck, card, media):
-    """Erzeugt pro Bereich eine Karte und sammelt das Bild fuer das Paket."""
+    """Creates one card per region and collects the image for the package."""
     image_path = card["image"]
     media.add(image_path)
     img_src = os.path.basename(image_path)
@@ -390,7 +399,7 @@ def _add_occlusion_notes(deck, card, media):
     regions = card["regions"]
 
     for target, (front, back) in enumerate(render_occlusion(card, img_src)):
-        # Stabile GUID je (Bild, Bereich), damit Re-Import aktualisiert statt dupliziert.
+        # Stable GUID per (image, region) so re-imports update instead of duplicate.
         guid = genanki.guid_for(img_src, mode, target, regions[target].get("label", ""))
         deck.add_note(
             genanki.Note(model=OCCLUSION_MODEL, fields=[front, back], tags=tags, guid=guid)
@@ -399,7 +408,7 @@ def _add_occlusion_notes(deck, card, media):
 
 
 def _deck_from_data(data, media):
-    """Baut aus einer geparsten cards.json ein genanki.Deck (+ zaehlt Notizen)."""
+    """Builds a genanki.Deck from a parsed cards.json (+ counts notes)."""
     deck_name = data["deck"]
     deck = genanki.Deck(stable_id("deck:" + deck_name), deck_name)
     note_count = 0
@@ -407,13 +416,13 @@ def _deck_from_data(data, media):
         ctype = card.get("type", "basic")
         tags = card.get("tags", [])
         more = _more_html(card)
-        # Optionale stabile GUID: erlaubt einen Rebuild, der eine bereits in Anki
-        # gelernte Notiz AKTUALISIERT (gleiche GUID) statt sie zu duplizieren -> der
-        # Lernfortschritt bleibt erhalten. Ohne 'guid' generiert genanki wie gehabt
-        # eine aus den Feldern abgeleitete GUID.
+        # Optional stable GUID: allows a rebuild that UPDATES a note already
+        # learned in Anki (same GUID) instead of duplicating it -> the learning
+        # progress survives. Without 'guid', genanki derives one from the fields
+        # as usual.
         guid = card.get("guid") or None
         if ctype == "cloze":
-            # Klappbox haengt am Extra-Feld (afmt zeigt es nach der Luecke).
+            # The collapsed box rides on the Extra field (afmt shows it after the gap).
             deck.add_note(
                 genanki.Note(model=CLOZE_MODEL, fields=[card["text"], card.get("extra", "") + more], tags=tags, guid=guid)
             )
@@ -424,7 +433,7 @@ def _deck_from_data(data, media):
                     genanki.Note(model=REVERSED_MODEL, fields=[card["front"], card["back"], more], tags=tags, guid=guid)
                 )
             else:
-                # Klappbox haengt hinten am Back-Feld (Model unveraendert -> kompatibel).
+                # The collapsed box is appended to the Back field (model unchanged -> compatible).
                 deck.add_note(
                     genanki.Note(model=BASIC_MODEL, fields=[card["front"], card["back"] + more], tags=tags, guid=guid)
                 )
@@ -438,8 +447,8 @@ def _deck_from_data(data, media):
             note_count += _add_occlusion_notes(deck, card, media)
         else:
             raise ValueError(
-                f"{deck_name}, Karte {i}: unbekannter type '{ctype}' "
-                "(erlaubt: basic, cloze, typein, occlusion)"
+                f"{deck_name}, card {i}: unknown type '{ctype}' "
+                "(allowed: basic, cloze, typein, occlusion)"
             )
     return deck, deck_name, note_count
 
@@ -450,16 +459,15 @@ def _default_out(first_input):
         if base.endswith(suffix):
             base = base[: -len(suffix)]
             break
-    # .apkg neben die cards.json (z. B. decks/Biologie/x.cards.json -> decks/Biologie/x.apkg)
+    # Put the .apkg next to the cards.json (e.g. decks/Biology/x.cards.json -> decks/Biology/x.apkg)
     return os.path.join(os.path.dirname(first_input) or "decks", base + ".apkg")
 
 
 def build(inputs, out_path: str | None = None) -> str:
-    """Baut aus einer ODER MEHREREN cards.json EINE .apkg.
+    """Builds ONE .apkg from one OR SEVERAL cards.json files.
 
-    Jede Datei wird zu einem eigenen Deck; '::' im Decknamen erzeugt Unterdecks.
-    So lassen sich z. B. Text-Karten und ein Abbildungs-Deck in einer Datei
-    zusammenfassen.
+    Each file becomes its own deck; '::' in the deck name creates subdecks.
+    This allows bundling e.g. text cards and a figures deck into one file.
     """
     if isinstance(inputs, str):
         inputs = [inputs]
@@ -484,21 +492,21 @@ def build(inputs, out_path: str | None = None) -> str:
     if media:
         missing = [p for p in media if not os.path.exists(p)]
         if missing:
-            raise FileNotFoundError("Bild(er) nicht gefunden: " + ", ".join(missing))
+            raise FileNotFoundError("Image(s) not found: " + ", ".join(missing))
         package.media_files = sorted(media)
 
     package.write_to_file(out_path)
     if len(decks) == 1:
-        print(f"OK: {total} Karten -> {out_path}  (Deck: {decks[0][1]})")
+        print(f"OK: {total} cards -> {out_path}  (deck: {decks[0][1]})")
     else:
-        print(f"OK: {total} Karten in {len(decks)} Decks -> {out_path}")
+        print(f"OK: {total} cards in {len(decks)} decks -> {out_path}")
         for _, name, count in decks:
             print(f"     - {name}: {count}")
     return out_path
 
 
 if __name__ == "__main__":
-    # Positionsargumente: beliebig viele *.json (Eingaben) + optional ein *.apkg (Ausgabe)
+    # Positional arguments: any number of *.json (inputs) + optionally one *.apkg (output)
     args = sys.argv[1:]
     inputs = [a for a in args if a.endswith(".json")]
     outs = [a for a in args if a.endswith(".apkg")]

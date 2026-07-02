@@ -1,41 +1,41 @@
-# Generierte Anki-Pakete (reproduzierbar aus den .cards.json) – auch in Themen-Unterordnern
+# Generated Anki packages (reproducible from the .cards.json) — also in topic subfolders
 decks/*.apkg
 decks/**/*.apkg
 
-# Gerenderte Vorschau-PNGs (reproduzierbar via tools/preview.sh) – auch verschachtelt
+# Rendered preview PNGs (reproducible via tools/preview.sh) — also nested
 decks/preview/
 decks/**/preview/
 
-# Arbeitsverzeichnis von tools/apkg_to_cards.py (cards.json + CSS aus einem Anki-Export,
-# reproduzierbar) – bleibt lokal, ist nur Zwischenstand fuer einen Rebuild.
+# Working directory of tools/apkg_to_cards.py (cards.json + CSS pulled from an Anki
+# export, reproducible) — stays local, only an intermediate step for a rebuild.
 decks/**/*_rebuild/
 decks/**/_rebuild/
 
-# Eigene Karten-JSONs (aus persönlichen Quellen) bleiben lokal – nur das generische
-# Beispiel-Deck wird versioniert. Eine bestimmte doch tracken: git add -f <pfad>
+# Your own card JSONs (built from personal sources) stay local — only the generic
+# example deck is versioned. To track a specific one anyway: git add -f <path>
 decks/**/*.cards.json
-!decks/beispiel.cards.json
+!decks/example.cards.json
 
 # Python
 __pycache__/
 *.py[cod]
 
-# OS / Editor
+# OS / editor
 .DS_Store
 Thumbs.db
 *.swp
 
-# Quelldateien (eigene PDFs/Bücher, oft persönlich/groß) NICHT versionieren.
-# Nur der Ordner bleibt erhalten. Willst du eine bestimmte Quelle doch tracken:
-#   git add -f quellen/dateiname.pdf
-quellen/*
-!quellen/.gitkeep
+# Source files (your own PDFs/books, often personal and/or large) are NOT versioned.
+# Only the folder itself is kept. To track a specific source anyway:
+#   git add -f sources/filename.pdf
+sources/*
+!sources/.gitkeep
 
-# Aus den (persönlichen) Quellen abgeleitete Markdown-Extrakte (reproduzierbar
-# via tools/extract.sh) NICHT versionieren.
-aufbereitet/
+# Markdown extracts derived from the (personal) sources (reproducible via
+# tools/extract.sh) are NOT versioned.
+extracted/
 
-# Nachschlagewerke (Ankis Quellcode = AGPL-3.0, Anki-Handbuch) NICHT versionieren –
-# fremder Code/Lizenz. Lokal vorhalten; Anleitung in reference/README.md.
+# Reference material (Anki source code = AGPL-3.0, Anki manual) is NOT versioned —
+# third-party code/licenses. Keep it locally if you want; see reference/README.md.
 reference/*
 !reference/README.md

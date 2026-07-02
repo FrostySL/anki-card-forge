@@ -1,39 +1,41 @@
 #!/usr/bin/env python3
-"""Liest ein Anki-.apkg ZURUECK in cards.json — eine pro Deck — mit erhaltener
-Notiz-GUID. Damit lassen sich **bereits in Anki gelernte/bearbeitete** Karten neu
-aufbereiten, OHNE den Lernfortschritt zu verlieren.
+"""Reads an Anki .apkg BACK into cards.json — one per deck — preserving the
+note GUIDs. This lets you rework cards that have **already been learned/edited
+in Anki** WITHOUT losing the learning progress.
 
-    python3 tools/apkg_to_cards.py <export.apkg> [-o ZIELORDNER]
+    python3 tools/apkg_to_cards.py <export.apkg> [-o TARGET_DIR]
 
-Workflow (siehe CLAUDE.md, Abschnitt "Bestehendes Deck aendern ohne Fortschrittsverlust"):
-  1. In Anki exportieren: Datei -> Exportieren -> .apkg (mit Scheduling).
-  2. Dieses Tool laufen lassen -> cards.json je Deck (Felder = aktueller Stand,
-     `guid` pro Karte erhalten).
-  3. cards.json editieren (Struktur/HTML, siehe Skill `kartenbau`).
-  4. tools/build.sh damit neu bauen — build_deck uebernimmt die `guid`, sodass der
-     Re-Import in Anki die Notiz AKTUALISIERT statt zu duplizieren (Fortschritt bleibt).
-  5. In Anki importieren: "Notizen aktualisieren", Scheduling NICHT zuruecksetzen.
+Workflow (see CLAUDE.md, section "Changing an existing deck without losing progress"):
+  1. Export in Anki: File -> Export -> .apkg (with scheduling).
+  2. Run this tool -> one cards.json per deck (fields = current state,
+     `guid` preserved per card).
+  3. Edit the cards.json (structure/HTML, see the `card-authoring` skill).
+  4. Rebuild with tools/build.sh — build_deck picks up the `guid`, so the
+     re-import in Anki UPDATES the note instead of duplicating it (progress kept).
+  5. Import in Anki: "Update notes", do NOT reset scheduling.
 
-Warum das noetig ist: Lernfortschritt haengt an der Notiz-GUID. Ohne erhaltene GUID
-berechnet genanki bei geaendertem Text eine neue -> Duplikate, Fortschritt weg.
+Why this is needed: learning progress hangs off the note GUID. Without a
+preserved GUID, genanki computes a new one for changed text -> duplicates,
+progress gone.
 
-Unterstuetzt das moderne Export-Format (collection.anki21b, zstd-komprimiert; echte
-Daten) und das Legacy-Format (collection.anki2, wie genanki es schreibt). Bildet die
-Notiztypen dieses Projekts ab:
+Supports the modern export format (collection.anki21b, zstd-compressed; the real
+data) and the legacy format (collection.anki2, as genanki writes it). Maps this
+project's note types (the German display names are intentional legacy — renaming
+them would disconnect existing decks):
   'Anki-Karten Basic'          -> basic
   'Anki-Karten Cloze'          -> cloze
   'Anki-Karten Type-in'        -> typein
   'Anki-Karten Basic+Reversed' -> basic + "reverse": true
-Cloze wird auch an `{{c…::}}` im ersten Feld erkannt. Occlusion-Notizen koennen NICHT
-zu image/regions zurueckgewandelt werden (Warnung, uebersprungen). Fremde Notiztypen
-werden best-effort als basic uebernommen (Warnung).
+Cloze is also detected via `{{c…::}}` in the first field. Occlusion notes CANNOT
+be converted back to image/regions (warning, skipped). Foreign note types are
+taken over best-effort as basic (warning).
 
-WICHTIG: Die ausgelesenen Felder enthalten eine evtl. vorhandene "Vertiefung & Quelle"-
-Box bereits eingebacken (im Back/Extra). Beim Editieren also NICHT zusaetzlich
-`explanation`/`source` setzen (sonst doppelte Box) — entweder die Box im Feld lassen
-oder sie dort herausloesen und sauber in `explanation`/`source` ueberfuehren.
+IMPORTANT: the extracted fields already contain any "details & source" box baked
+in (inside Back/Extra). When editing, do NOT set `explanation`/`source` on top
+(double box) — either leave the box in the field or move it cleanly into
+`explanation`/`source`.
 
-Laeuft auf dem Host (nur stdlib + zstd) — KEIN Docker noetig.
+Runs on the host (stdlib + zstd only) — NO Docker needed.
 """
 import argparse
 import io
@@ -54,37 +56,37 @@ KNOWN = {
 
 
 def _decompress_zstd(data: bytes) -> bytes:
-    """zstd-Frame -> rohe Bytes. python-zstandard bevorzugt, sonst zstd-CLI."""
+    """zstd frame -> raw bytes. Prefers python-zstandard, falls back to the zstd CLI."""
     try:
         import zstandard
     except ImportError:
         proc = subprocess.run(["zstd", "-dc"], input=data, capture_output=True)
         if proc.returncode != 0:
             raise RuntimeError(
-                "Brauche python-'zstandard' ODER das 'zstd'-CLI zum Entpacken von "
+                "Need python 'zstandard' OR the 'zstd' CLI to unpack "
                 "collection.anki21b: " + proc.stderr.decode("utf-8", "replace")[:200]
             )
         return proc.stdout
     dctx = zstandard.ZstdDecompressor()
     try:
         return dctx.decompress(data)
-    except zstandard.ZstdError:  # Groesse nicht im Frame-Header -> streamen
+    except zstandard.ZstdError:  # size not in the frame header -> stream
         return dctx.stream_reader(io.BytesIO(data)).read()
 
 
 def open_collection(apkg_path):
-    """Schreibt die ECHTE Collection-DB in ein Tempfile und gibt (Connection, Pfad)."""
+    """Writes the REAL collection DB to a temp file and returns (connection, path)."""
     with zipfile.ZipFile(apkg_path) as z:
         names = set(z.namelist())
         if "collection.anki21b" in names:           # modern, zstd
             raw = _decompress_zstd(z.read("collection.anki21b"))
-        elif "collection.anki21" in names:          # uebergangsformat
+        elif "collection.anki21" in names:          # transitional format
             blob = z.read("collection.anki21")
             raw = blob if blob[:16] == b"SQLite format 3\x00" else _decompress_zstd(blob)
         elif "collection.anki2" in names:           # legacy (genanki)
             raw = z.read("collection.anki2")
         else:
-            raise RuntimeError("Keine collection.* im .apkg gefunden.")
+            raise RuntimeError("No collection.* found in the .apkg.")
     tmp = tempfile.NamedTemporaryFile(suffix=".anki2", delete=False)
     tmp.write(raw)
     tmp.close()
@@ -92,13 +94,13 @@ def open_collection(apkg_path):
 
 
 def _maps(con):
-    """(notetype-id->name, deck-id->name, schema). Deckname-Trenner -> '::'."""
+    """(notetype id->name, deck id->name, schema). Deck name separator -> '::'."""
     tabs = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    if "notetypes" in tabs:  # moderne DB: eigene Tabellen
+    if "notetypes" in tabs:  # modern DB: dedicated tables
         ntype = dict(con.execute("SELECT id, name FROM notetypes"))
         decks = {d: n.replace(FIELD_SEP, "::") for d, n in con.execute("SELECT id, name FROM decks")}
         return ntype, decks, "modern"
-    # Legacy: alles in col als JSON
+    # Legacy: everything in col as JSON
     models, decks_json = con.execute("SELECT models, decks FROM col").fetchone()
     ntype = {int(mid): m["name"] for mid, m in json.loads(models).items()}
     decks = {int(did): d["name"].replace(FIELD_SEP, "::") for did, d in json.loads(decks_json).items()}
@@ -106,36 +108,36 @@ def _maps(con):
 
 
 def _note_to_card(model, fields, guid, tags, nid, warnings):
-    """Eine DB-Notiz -> ein cards.json-Eintrag (oder None bei Occlusion)."""
+    """One DB note -> one cards.json entry (or None for occlusion)."""
     def f(i):
         return fields[i] if i < len(fields) else ""
 
     m = model.lower()
     card = {"guid": guid}
     if "occlusion" in m:
-        warnings.append(f"nid {nid}: Occlusion uebersprungen (nicht zu image/regions rueckwandelbar).")
+        warnings.append(f"nid {nid}: occlusion skipped (cannot be converted back to image/regions).")
         return None
     if "cloze" in m or "{{c" in f(0):
         card.update(type="cloze", text=f(0), extra=f(1))
     elif "type-in" in m or "typein" in m:
         card.update(type="typein", front=f(0), back=f(1))
     elif "reversed" in m or "reverse" in m:
-        # Reversed-Model hat [Front, Back, More]; More (3. Feld) ans Back haengen,
-        # damit eine evtl. eingebackene Box nicht verloren geht.
+        # The reversed model has [Front, Back, More]; append More (3rd field) to
+        # Back so a possibly baked-in box is not lost.
         back = f(1) + (f(2) if f(2).strip() else "")
         card.update(type="basic", reverse=True, front=f(0), back=back)
         if f(2).strip():
-            warnings.append(f"nid {nid}: reversed – 'More'-Feld ans Back gehaengt (pruefen).")
+            warnings.append(f"nid {nid}: reversed – 'More' field appended to Back (verify).")
     else:
         if model not in KNOWN:
-            warnings.append(f"nid {nid}: unbekannter Notiztyp {model!r} -> als basic uebernommen.")
+            warnings.append(f"nid {nid}: unknown note type {model!r} -> taken over as basic.")
         card.update(type="basic", front=f(0), back=f(1))
     card["tags"] = tags.split()
     return card
 
 
 def extract(con):
-    """-> (dict deckname->[cards], warnings)."""
+    """-> (dict deck name->[cards], warnings)."""
     ntype, decks, _schema = _maps(con)
     note_deck = {nid: decks.get(did, "Default")
                  for nid, did in con.execute("SELECT nid, MIN(did) FROM cards GROUP BY nid")}
@@ -160,13 +162,13 @@ def write_cards_json(by_deck, outdir):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Anki-.apkg zurueck in cards.json (GUIDs erhalten).")
-    ap.add_argument("apkg", help="Pfad zum .apkg (Anki-Export oder von uns gebaut)")
-    ap.add_argument("-o", "--out", help="Zielordner (Default: <apkg>_cards/ daneben)")
+    ap = argparse.ArgumentParser(description="Anki .apkg back into cards.json (GUIDs preserved).")
+    ap.add_argument("apkg", help="path to the .apkg (Anki export or built by us)")
+    ap.add_argument("-o", "--out", help="target folder (default: <apkg>_cards/ next to it)")
     args = ap.parse_args(argv)
 
     if not os.path.exists(args.apkg):
-        ap.error(f"Datei nicht gefunden: {args.apkg}")
+        ap.error(f"File not found: {args.apkg}")
     outdir = args.out or os.path.join(
         os.path.dirname(os.path.abspath(args.apkg)),
         re.sub(r"\.apkg$", "", os.path.basename(args.apkg)) + "_cards",
@@ -181,16 +183,16 @@ def main(argv=None):
 
     files = write_cards_json(by_deck, outdir)
     total = sum(n for _, _, n in files)
-    print(f"== {os.path.basename(args.apkg)} -> {len(files)} cards.json ({total} Notizen) ==")
+    print(f"== {os.path.basename(args.apkg)} -> {len(files)} cards.json ({total} notes) ==")
     for path, deck, n in files:
         print(f"  {n:3d}  {deck}")
     if warnings:
-        print(f"\n{len(warnings)} Warnung(en):")
+        print(f"\n{len(warnings)} warning(s):")
         for w in warnings:
             print("  -", w)
     print(f"\ncards.json in: {outdir}")
     quoted = " ".join(f'"{p}"' for p, _, _ in files)
-    print("Neu bauen (GUIDs/Fortschritt bleiben) z. B.:")
+    print("Rebuild (GUIDs/progress preserved), e.g.:")
     print(f'  ./tools/build.sh {quoted} "out.apkg"')
     return 0
 

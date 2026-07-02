@@ -1,9 +1,9 @@
-"""Laedt die tools/-Skripte als isolierte Module fuer die Tests.
+"""Loads the tools/ scripts as isolated modules for the tests.
 
-Per importlib mit eigenem Modulnamen (`tool_<stem>`), damit
-  - der Tool-Name `coverage` NICHT mit dem gleichnamigen PyPI-Paket kollidiert,
-  - die Skripte ohne Installation/Pfad-Tricks importierbar sind.
-Die `if __name__ == "__main__"`-Guards verhindern, dass main() beim Import laeuft.
+Via importlib with a dedicated module name (`tool_<stem>`), so that
+  - the tool name `coverage` does NOT collide with the PyPI package of the same name,
+  - the scripts are importable without installation/path tricks.
+The `if __name__ == "__main__"` guards prevent main() from running on import.
 """
 import importlib.util
 from pathlib import Path

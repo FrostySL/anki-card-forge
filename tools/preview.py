@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Rendert die Karten einer cards.json als PNG-Bilder (Vorder- + Rueckseite).
+"""Renders the cards of a cards.json as PNG images (front + back).
 
-Aufruf (i. d. R. ueber tools/preview.sh im Vorschau-Container):
+Usage (normally via tools/preview.sh inside the preview container):
     python preview.py <cards.json> [--theme light|dark|both]
 
-Erzeugt je Theme:  decks/preview/<name>/NN-<typ>-front[-dark].png  und  -back[-dark].png
-                   decks/preview/<name>/index.html  (Kontaktbogen zum Durchschauen)
+Produces per theme:  decks/preview/<name>/NN-<type>-front[-dark].png  and  -back[-dark].png
+                     decks/preview/<name>/index.html  (contact sheet for browsing)
 
-Zweck: Feedbackloop. Claude (oder du) sieht sich die PNGs an und korrigiert z. B.
-verrutschte Image-Occlusion-Boxen, bevor die .apkg final gebaut wird. Es wird das
-gleiche HTML/CSS wie im .apkg verwendet (aus build_deck.py), daher sieht die Vorschau
-praktisch wie die echte Anki-Karte aus.
+Purpose: feedback loop. Claude (or you) looks at the PNGs and fixes e.g.
+misplaced image-occlusion boxes before the final .apkg is built. The same
+HTML/CSS as in the .apkg is used (from build_deck.py), so the preview looks
+practically identical to the real Anki card.
 
-**Themes:** Default ist `both` -> jede Karte wird hell UND im Anki-Nachtmodus
-(dunkler Grund, helle Schrift) gerendert. So sehe ich genau, was der Nutzer in beiden
-Themes sieht (Nachtmodus-Lesbarkeit, Kontrast). `--theme light` ist schneller.
+**Themes:** default is `both` -> every card is rendered light AND in Anki's
+night mode (dark background, light text). That shows exactly what the user sees
+in both themes (night-mode readability, contrast). `--theme light` is faster.
 """
 import base64
 import html
@@ -24,12 +24,12 @@ import os
 import re
 import sys
 
-import build_deck  # gleiche tools/-Verzeichnis -> sys.path[0]
+import build_deck  # same tools/ directory -> sys.path[0]
 from playwright.sync_api import sync_playwright
 
-# MathJax wie in Anki (\( \) inline, \[ \] display). Nur eingebunden, wenn die Karte
-# wirklich Formeln enthaelt -> normale Karten brauchen kein Internet/CDN. Im .apkg
-# bringt Anki MathJax selbst mit; das hier ist nur fuer die Vorschau-Parität.
+# MathJax like in Anki (\( \) inline, \[ \] display). Only included when the card
+# actually contains formulas -> normal cards need no internet/CDN. In the .apkg,
+# Anki ships MathJax itself; this is only for preview parity.
 _MATHJAX = (
     r"<script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]}};</script>"
     '<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>'
@@ -41,9 +41,9 @@ _DOC = (
     '<body><div class="card">{body}</div></body></html>'
 )
 
-# Themes wie in Anki. "dark" setzt dunklen Grund + helle Schrift auf <body>; die
-# .card erbt das (sie setzt selbst keine color/background) -> exakt wie Ankis
-# Nachtmodus. So sehe ich beim Pruefen genau, was der Nutzer in beiden Themes sieht.
+# Themes like in Anki. "dark" sets a dark background + light text on <body>; the
+# .card inherits it (it sets no color/background itself) -> exactly like Anki's
+# night mode. So the check shows precisely what the user sees in both themes.
 _THEMES = {
     "light": "background:#fff;",
     "dark": "background:#2b2b2b;color:#d7d7d7;",
@@ -52,7 +52,7 @@ _THEMES = {
 
 def _data_uri(path):
     if not os.path.exists(path):
-        raise FileNotFoundError(f"Bild nicht gefunden: {path}")
+        raise FileNotFoundError(f"Image not found: {path}")
     mime = mimetypes.guess_type(path)[0] or "image/png"
     with open(path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("ascii")
@@ -66,7 +66,7 @@ def _short(text, n=60):
 
 
 def _collect(data):
-    """-> Liste von (ctype, label, front_html, back_html)."""
+    """-> list of (ctype, label, front_html, back_html)."""
     items = []
     for card in data["cards"]:
         ctype = card.get("type", "basic")
@@ -89,7 +89,7 @@ def _collect(data):
             for n, (front, back) in enumerate(build_deck.render_occlusion(card, uri)):
                 items.append((ctype, regions[n].get("label", f"#{n + 1}"), front, back))
         else:
-            raise ValueError(f"Unbekannter type '{ctype}' (basic, cloze, typein, occlusion)")
+            raise ValueError(f"Unknown type '{ctype}' (basic, cloze, typein, occlusion)")
     return items
 
 
@@ -99,7 +99,7 @@ def _png_name(i, ctype, side, theme):
 
 
 def _write_index(outdir, rows, themes=("light",)):
-    cap = {"front": "Vorderseite", "back": "Rückseite"}
+    cap = {"front": "Front", "back": "Back"}
     cells = []
     for i, ctype, label in rows:
         figs = ""
@@ -113,14 +113,14 @@ def _write_index(outdir, rows, themes=("light",)):
             f'<div class="pair">{figs}</div></div>'
         )
     doc = (
-        "<!doctype html><html><head><meta charset='utf-8'><title>Karten-Vorschau</title>"
+        "<!doctype html><html><head><meta charset='utf-8'><title>Card preview</title>"
         "<style>body{font-family:sans-serif;margin:2em;background:#f5f5f5;}"
         ".row{background:#fff;border-radius:8px;padding:1em;margin-bottom:1.5em;"
         "box-shadow:0 1px 4px rgba(0,0,0,.1);}"
         ".pair{display:flex;gap:1em;flex-wrap:wrap;}"
         "figure{margin:0;}figcaption{font-size:.8em;color:#666;margin-bottom:.3em;}"
         "img{max-width:420px;border:1px solid #ddd;}h3{color:#333;}</style></head>"
-        f"<body><h1>Karten-Vorschau</h1>{''.join(cells)}</body></html>"
+        f"<body><h1>Card preview</h1>{''.join(cells)}</body></html>"
     )
     with open(os.path.join(outdir, "index.html"), "w", encoding="utf-8") as f:
         f.write(doc)
@@ -135,7 +135,7 @@ def preview(cards_path, themes=("light", "dark")):
         if base.endswith(suffix):
             base = base[: -len(suffix)]
             break
-    # Vorschau neben die cards.json (z. B. decks/Biologie/x.cards.json -> decks/Biologie/preview/x/)
+    # Preview next to the cards.json (e.g. decks/Biology/x.cards.json -> decks/Biology/preview/x/)
     src_dir = os.path.dirname(cards_path) or "decks"
     outdir = os.path.join(src_dir, "preview", base)
     os.makedirs(outdir, exist_ok=True)
@@ -143,13 +143,13 @@ def preview(cards_path, themes=("light", "dark")):
     items = _collect(data)
     rows = []
     with sync_playwright() as p:
-        # --no-sandbox: noetig fuer headless Chromium als Nicht-Root im Container
-        # (wir rendern nur eigenes, vertrauenswuerdiges HTML).
+        # --no-sandbox: needed for headless Chromium as non-root in the container
+        # (we only render our own, trusted HTML).
         browser = p.chromium.launch(args=["--no-sandbox"])
         page = browser.new_page(viewport={"width": 800, "height": 600}, device_scale_factor=2)
         for i, (ctype, label, front, back) in enumerate(items, 1):
             for side, body in (("front", front), ("back", back)):
-                # Klappbox in der Vorschau aufgeklappt zeigen (im echten Deck bleibt sie zu).
+                # Show the collapsed box open in the preview (stays closed in the real deck).
                 body = body.replace('<details class="more">', '<details class="more" open>')
                 has_math = "\\(" in body or "\\[" in body
                 mathjax = _MATHJAX if has_math else ""
@@ -157,8 +157,8 @@ def preview(cards_path, themes=("light", "dark")):
                     page.set_content(_DOC.format(
                         css=build_deck._CSS, body=body, mathjax=mathjax, frame=_THEMES[theme]))
                     if has_math:
-                        # Best effort: auf MathJax warten und setzen. Offline -> Timeout,
-                        # Formeln bleiben Rohtext (das .apkg rendert sie trotzdem).
+                        # Best effort: wait for MathJax and typeset. Offline -> timeout,
+                        # formulas stay raw text (the .apkg still renders them).
                         try:
                             page.wait_for_function("window.MathJax && window.MathJax.typesetPromise", timeout=4000)
                             page.evaluate("() => window.MathJax.typesetPromise()")
@@ -170,17 +170,17 @@ def preview(cards_path, themes=("light", "dark")):
 
     _write_index(outdir, rows, themes)
     n_png = len(items) * 2 * len(themes)
-    print(f"OK: {len(items)} Karten · Themes: {'+'.join(themes)} -> {outdir}/  ({n_png} PNGs + index.html)")
+    print(f"OK: {len(items)} cards · themes: {'+'.join(themes)} -> {outdir}/  ({n_png} PNGs + index.html)")
     return outdir
 
 
 if __name__ == "__main__":
     import argparse
 
-    ap = argparse.ArgumentParser(description="Karten einer cards.json als PNG rendern (hell/dunkel).")
-    ap.add_argument("cards", help="Pfad zur cards.json")
+    ap = argparse.ArgumentParser(description="Render the cards of a cards.json as PNGs (light/dark).")
+    ap.add_argument("cards", help="path to the cards.json")
     ap.add_argument("--theme", choices=["light", "dark", "both"], default="both",
-                    help="Welche(s) Theme(s) rendern (Default: both = hell UND Anki-Nachtmodus).")
+                    help="which theme(s) to render (default: both = light AND Anki night mode).")
     args = ap.parse_args()
     themes = ("light", "dark") if args.theme == "both" else (args.theme,)
     preview(args.cards, themes)

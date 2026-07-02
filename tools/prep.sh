@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# One-Shot-Quellenaufbereitung: PDF -> Markdown (+ Abbildungs-Index) UND Bild-Crops.
-# Bündelt extract.sh (extract.py -> .md, dann figindex.py -> .figures.md) und
-# figextract.sh (-> figures/<name>_S*.png + <name>.figures.json).
+# One-shot source preparation: PDF -> Markdown (+ figure index) AND figure crops.
+# Bundles extract.sh (extract.py -> .md, then figindex.py -> .figures.md) and
+# figextract.sh (-> figures/<name>_p*.png + <name>.figures.json).
 #
-#   ./tools/prep.sh quellen/SWT/            # ganzen Themenordner aufbereiten
-#   ./tools/prep.sh quellen/SWT/04_UML.pdf  # einzelne Datei
+#   ./tools/prep.sh sources/SWT/            # prepare a whole topic folder
+#   ./tools/prep.sh sources/SWT/04_UML.pdf  # single file
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "== 1/2 Text-Extrakt + Abbildungs-Index =="
+echo "== 1/2 Text extract + figure index =="
 "$DIR/extract.sh" "$@"
-echo "== 2/2 Abbildungen schneiden =="
+echo "== 2/2 Cropping figures =="
 "$DIR/figextract.sh" "$@"
-echo "Fertig. Lesen: aufbereitet/<Thema>/<name>.md  (Bilder: <name>.figures.md / figures/)"
+echo "Done. Read: extracted/<topic>/<name>.md  (figures: <name>.figures.md / figures/)"

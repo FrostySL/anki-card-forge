@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Validiert eine .apkg in der echten Anki-Engine (Backend, ohne GUI).
+# Validates an .apkg in the real Anki engine (backend, no GUI).
 #
-#   ./tools/validate.sh decks/skript.apkg
+#   ./tools/validate.sh decks/script.apkg
 #
-# Erster Aufruf baut das Validate-Image automatisch.
+# The first run builds the validate image automatically.
 set -euo pipefail
 
-IMAGE="anki-karten-validate"
+IMAGE="anki-cards-validate"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "Image '$IMAGE' fehlt – baue es..." >&2
+  echo "Image '$IMAGE' missing – building it..." >&2
   docker build -f "$PROJECT_DIR/Dockerfile.validate" -t "$IMAGE" "$PROJECT_DIR"
 fi
 

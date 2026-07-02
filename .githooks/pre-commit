@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
-# Schutz fuers OEFFENTLICHE Repo: blockiert Commits, die persoenliches Material
-# hinzufuegen wuerden (Kursmaterial in quellen/, Extrakte in aufbereitet/, eigene
-# Decks, PDFs/Anki-Pakete) — greift auch bei 'git add -f', wo die .gitignore
-# machtlos ist. Hintergrund: genau so ein Unfall erforderte am 23.06.2026 eine
-# History-Bereinigung.
+# Guard for the PUBLIC repo: blocks commits that would add personal material
+# (course PDFs in sources/, extracts in extracted/, your own decks, PDFs/Anki
+# packages) — also catches 'git add -f', where .gitignore is powerless.
+# Background: exactly this kind of accident required a history rewrite once.
 #
-# Einmalig aktivieren (pro Clone):  git config core.hooksPath .githooks
-# Bewusst umgehen (nur wenn sicher unpersoenlich): git commit --no-verify
+# Activate once per clone:  git config core.hooksPath .githooks
+# Bypass deliberately (only if clearly non-personal): git commit --no-verify
 set -euo pipefail
 
-# Neue Dateien (Added/Copied/Renamed) muessen aus diesen Pfaden kommen. Bereits
-# getrackte Dateien zu aendern ist immer ok (die haben das Gate schon passiert).
+# New files (Added/Copied/Renamed) must come from these paths. Modifying already
+# tracked files is always fine (they passed this gate before).
 allowed() {
   case "$1" in
     tools/*|tests/*|.claude/*|.github/*|.githooks/*) return 0 ;;
-    reference/README.md|quellen/.gitkeep|decks/.gitkeep) return 0 ;;
-    decks/beispiel.cards.json) return 0 ;;
-    */*) return 1 ;;  # alle anderen Unterordner: potenziell persoenlich
-    *) return 0 ;;    # Root-Dateien (README.md, CLAUDE.md, Dockerfile*, ...) ok
+    reference/README.md|sources/.gitkeep|decks/.gitkeep) return 0 ;;
+    decks/example.cards.json) return 0 ;;
+    */*) return 1 ;;  # any other subfolder: potentially personal
+    *) return 0 ;;    # root files (README.md, CLAUDE.md, Dockerfile*, ...) ok
   esac
 }
 
@@ -25,20 +24,20 @@ bad=0
 while IFS= read -r f; do
   case "$f" in
     *.pdf|*.apkg|*.colpkg)
-      echo "BLOCKIERT: $f — PDF/Anki-Paket gehoert nicht ins oeffentliche Repo." >&2
+      echo "BLOCKED: $f — PDFs/Anki packages do not belong in the public repo." >&2
       bad=1
       continue ;;
   esac
   if ! allowed "$f"; then
-    echo "BLOCKIERT: $f — Pfad ist nicht in der Allowlist fuers oeffentliche Repo" >&2
-    echo "           (persoenliches Material? quellen/, aufbereitet/, decks/ bleiben lokal)." >&2
+    echo "BLOCKED: $f — path is not on the allowlist for the public repo" >&2
+    echo "         (personal material? sources/, extracted/, decks/ stay local)." >&2
     bad=1
   fi
 done < <(git diff --cached --name-only --diff-filter=ACR)
 
 if [ "$bad" -ne 0 ]; then
   echo >&2
-  echo "Commit abgebrochen (.githooks/pre-commit). Datei wirklich gemeint und" >&2
-  echo "sicher unpersoenlich? -> Allowlist im Hook erweitern oder 'git commit --no-verify'." >&2
+  echo "Commit aborted (.githooks/pre-commit). File really intended and clearly" >&2
+  echo "non-personal? -> extend the allowlist in the hook, or 'git commit --no-verify'." >&2
   exit 1
 fi

@@ -1,108 +1,196 @@
 # Anki-Karten
 
-Aus **Skripten, Büchern und Texten** automatisch **Anki-Karteikarten** machen —
-zusammen mit [Claude Code](https://claude.com/claude-code).
+Turn **lecture scripts, books, slides and notes** into high-quality **Anki
+flashcards** — together with [Claude Code](https://claude.com/claude-code).
+Works for **any subject** and produces cards in **any language you ask for**.
 
-## Idee
+## The idea
 
-Die KI ist Claude selbst: Du legst eine Datei in `quellen/<Thema>/`, sagst Claude
-im Chat „mach Karten daraus", Claude liest die Datei, schreibt die Karten nach den
-Regeln des `kartenbau`-Skills, und ein kleiner Docker-Container verpackt sie zu einer
-fertigen `.apkg`-Datei für Anki. **Kein externer LLM-Aufruf, kein API-Key** — Docker
-macht nur das stumpfe „Karten-JSON → `.apkg`" über die Bibliothek `genanki`.
+The AI is Claude itself: you drop a file into `sources/<topic>/`, tell Claude in
+the chat *"make cards from this"*, Claude reads the file, writes the cards
+following an evidence-based methodology (the `card-authoring` skill), checks its
+own work, and a small Docker container packs everything into a ready-to-import
+`.apkg` file. **No external LLM call, no API key** — Docker only does the dumb
+"card JSON → `.apkg`" part via the [`genanki`](https://github.com/kerrickstaley/genanki)
+library.
 
 ```
-quellen/<Thema>/skript.pdf  →  (Claude liest + erstellt Karten)  →  decks/<Thema>/skript.apkg  →  Import in Anki
+sources/<topic>/script.pdf  →  (Claude reads + authors cards)  →  decks/<topic>/script.apkg  →  import into Anki
 ```
 
-## Voraussetzungen
+What makes the cards good rather than just numerous:
 
-- **[Claude Code](https://claude.com/claude-code)** (die KI, die die Karten schreibt)
-- **Docker** (verpackt Karten zu `.apkg`, rendert Vorschauen, macht OCR)
+- **Evidence-based card rules** — atomicity, active retrieval, no hint leaks,
+  format by knowledge type (see `.claude/skills/card-authoring/`, with sources).
+- **Grounding check** — a heuristic verifies that every answer actually appears
+  in the source text, so invented "facts" surface before you learn them.
+- **Visual self-review** — cards are rendered as PNGs (light **and** Anki night
+  mode) and inspected before delivery; image-occlusion masks are checked visually.
+- **Real-engine validation** — every `.apkg` is imported and rendered with Anki's
+  actual backend before it is handed to you.
 
-Sonst nichts — alle Python-Abhängigkeiten leben in den Docker-Images.
+## Requirements
 
-## Benutzung
+- **[Claude Code](https://claude.com/claude-code)** (the AI that writes the cards)
+- **Docker** (packs cards into `.apkg`, renders previews, runs OCR)
 
-1. Quelle nach `quellen/<Thema>/` legen (PDF, Text, Markdown …) — pro Themengebiet
-   ein Unterordner, z. B. `quellen/Biologie/`.
-2. Claude im Chat bitten: **„Erstelle Anki-Karten aus quellen/Biologie/zellatmung.pdf."**
-3. Claude erzeugt `decks/Biologie/zellatmung.apkg`.
-4. In Anki über **Datei → Importieren** (oder Doppelklick) laden.
+Nothing else — all Python dependencies live inside the Docker images.
 
-Claude bereitet Quellen bei Bedarf zuerst zu Markdown auf (inkl. OCR für gescannte
-PDFs) und prüft die Karten vor dem Export selbst (Lint, PNG-Vorschau, echte
-Anki-Engine). Die Methodik dafür steht in [CLAUDE.md](CLAUDE.md) und im
-`kartenbau`-Skill.
-
-## Einrichtung (einmalig)
+## Quick start
 
 ```bash
-docker build -t anki-karten .            # schlankes Builder-Image
-git config core.hooksPath .githooks      # Commit-Guard aktivieren (s. u.)
+git clone https://github.com/FrostySL/Anki-Karten
+cd Anki-Karten
+docker build -t anki-cards .             # slim builder image (one-off)
+git config core.hooksPath .githooks      # commit guard (see below, one-off)
 ```
 
-Die größeren Images (Vorschau/OCR, Quellen-Aufbereitung) werden beim ersten Aufruf
-der jeweiligen `tools/*.sh` automatisch gebaut.
+1. Put a source into `sources/<topic>/` (PDF, text, Markdown …) — one subfolder
+   per topic, e.g. `sources/Biology/`.
+2. Ask Claude in the chat: **"Create Anki cards from sources/Biology/respiration.pdf."**
+3. Claude produces `decks/Biology/respiration.apkg`.
+4. Import into Anki via **File → Import** (or double-click).
 
-Der **Commit-Guard** (`.githooks/pre-commit`) verhindert, dass persönliches
-Material (Quellen-PDFs, Extrakte, eigene Decks) versehentlich in diesem
-öffentlichen Repo landet — auch bei `git add -f`, wo die `.gitignore` nicht mehr
-greift. Neue Dateien sind nur aus Werkzeug-/Doku-Pfaden erlaubt; bewusst umgehen:
-`git commit --no-verify`.
+The larger images (preview/OCR, source extraction) are built automatically the
+first time the corresponding `tools/*.sh` runs.
 
-## Kartentypen
+### Any topic, any language
 
-- **basic** — Frage/Antwort (mit `reverse` auch beidseitig).
-- **cloze** — Lückentext `{{c1::…}}`.
-- **typein** — Antwort eintippen, Anki vergleicht (für exakte Schreibweisen).
-- **occlusion** — Bild mit verdeckten Bereichen (Anatomie, Diagramme …).
+The project is deliberately generic — biology, law, math, software engineering,
+history: if it fits in a PDF or text file, it can become cards. Cards default to
+the language of your source material. Want something else? Just tell Claude:
 
-Auf **jeder** Karte optional eine zugeklappte Box „Vertiefung & Quelle"
-(`explanation` + `source`). Details zum Karten-JSON-Format: [CLAUDE.md](CLAUDE.md).
+> "Make the cards from sources/Histoire/revolution.pdf — cards in French, please."
 
-## Werkzeuge
+For scanned PDFs in other languages, add the Tesseract language pack to
+`Dockerfile.extract` and pass `--lang` (e.g. `./tools/extract.sh … --lang eng+fra`).
 
-| Tool | Zweck |
+Optionally place a `context.md` next to your sources (what the material is for,
+where the focus lies, what the exam covers) — Claude reads it first and weights
+the cards accordingly.
+
+## Saving tokens: run the extraction toolchain yourself
+
+Claude normally runs the whole pipeline for you. But the **source preparation**
+step (PDF → Markdown + figure crops) is pure tooling — no AI involved — and you
+can run it yourself before starting the chat, so Claude doesn't spend tokens
+babysitting Docker:
+
+```bash
+./tools/prep.sh sources/<topic>/            # whole folder, or a single PDF
+```
+
+This produces, per source file:
+
+- `extracted/<topic>/<name>.md` — machine-readable Markdown with page markers
+  (`<!-- p. 12 -->`), scanned pages OCR'd and marked `(OCR)`,
+- `extracted/<topic>/<name>.figures.md` — an index of the figures per page,
+- `extracted/<topic>/figures/<name>_p<page>_<i>.png` — cropped figures (for
+  image-occlusion cards and cheap visual checks).
+
+Then tell Claude *"the sources are already prepared — make cards from
+extracted/<topic>/…"* and it skips straight to reading and authoring. Everything
+else (lint, grounding, preview, build, validate) is also runnable by hand — see
+the tools table below.
+
+## Card types
+
+- **basic** — question/answer (with `reverse: true` also both directions).
+- **cloze** — fill-in-the-blank `{{c1::…}}`.
+- **typein** — type the answer, Anki compares (for exact spellings).
+- **occlusion** — image with hidden regions (anatomy, diagrams …), self-rendered
+  HTML/CSS overlay that works in every Anki version.
+
+On **every** card, optionally a collapsed "Details & source" box
+(`explanation` + `source`) — elaborative feedback after the retrieval, without
+making the question easier. Full card JSON format: [CLAUDE.md](CLAUDE.md).
+
+```json
+{
+  "deck": "Biology::Cellular respiration",
+  "cards": [
+    { "type": "basic",
+      "front": "Where in the cell does cellular respiration take place?",
+      "back": "In the mitochondria.",
+      "source": "script p. 12", "tags": ["bio"] }
+  ]
+}
+```
+
+## The quality pipeline
+
+Every deck runs through this loop before it is called done:
+
+| Step | Tool | What it catches |
+|---|---|---|
+| Lint | `tools/lint_cards.py` | empty fields, missing deletions, bad occlusion coordinates, duplicate questions, typo'd field names |
+| Grounding | `tools/grounding_check.py` | answers not backed by the source text (hallucinations), wrong page citations |
+| Coverage | `tools/coverage.py` | near-duplicate cards across files, source pages without any card |
+| Preview | `tools/preview.sh` | layout problems, misplaced occlusion masks, night-mode readability |
+| Validate | `tools/validate.sh` | import errors, render errors, empty cards — in the real Anki engine |
+
+Shortcut: `./tools/finish.sh decks/<topic>/<name>.cards.json` runs
+lint + grounding + build + validate in one go; give it several `cards.json`
+plus a target `.apkg` and it bundles a whole topic (and adds the coverage check).
+
+## Updating an already-learned deck (without losing progress)
+
+Learning progress hangs off the Anki note GUID. To restructure cards you have
+already been studying:
+
+```bash
+# 1. In Anki: File → Export → .apkg (with scheduling)
+# 2. Back to editable JSON, GUIDs preserved (stdlib, no Docker):
+python3 tools/apkg_to_cards.py export.apkg -o decks/<topic>/<name>_rebuild
+# 3. Edit the cards.json, then rebuild — re-import UPDATES instead of duplicating:
+./tools/build.sh decks/<topic>/<name>_rebuild/*.cards.json "restructured.apkg"
+```
+
+Details (cloze pitfalls, CSS updates): [CLAUDE.md](CLAUDE.md).
+
+## Tools
+
+| Tool | Purpose |
 |---|---|
-| `tools/prep.sh` | Quelle aufbereiten in einem Schritt: `extract` + Abbildungs-Index + `figextract` |
-| `tools/extract.sh` | PDF → Markdown (parallele OCR für Scans; inkl. Abbildungs-Index via `figindex.py`) |
-| `tools/figextract.sh` | Abbildungen aus dem PDF schneiden → PNG-Crops + Manifest |
-| `tools/detect.sh` | OCR (Tesseract): Label-Boxen für Image Occlusion erkennen |
-| `tools/lint_cards.py` | schnelle Inhalts-/Struktur-Prüfung (reines Python, ohne Docker) |
-| `tools/grounding_check.py` | Anti-Halluzination: stehen die Antworten wirklich im Quelltext? |
-| `tools/coverage.py` | Beinah-Dubletten + Quellseiten-Abdeckung über ein ganzes Thema |
-| `tools/build.sh` | Karten-JSON → `.apkg` (genanki); bündelt auch mehrere JSONs in eine Datei |
-| `tools/preview.sh` | Karten → PNG-Vorschau hell + Nachtmodus (headless Chromium, Feedbackloop) |
-| `tools/validate.sh` | `.apkg` in echter Anki-Engine prüfen (Import + Render) |
-| `tools/finish.sh` | Abkürzung: Lint + Grounding (+ Coverage) + Build + Validate in einem |
-| `tools/apkg_to_cards.py` | `.apkg` → `cards.json` zurück, GUIDs bleiben (gelernte Decks ändern ohne Fortschrittsverlust) |
-| `tools/test.sh` | Testsuite der Logik-Tools (stdlib-`unittest`, ohne Docker/pip) |
+| `tools/prep.sh` | prepare a source in one step: `extract` + figure index + `figextract` |
+| `tools/extract.sh` | PDF → Markdown (parallel OCR for scans; incl. figure index via `figindex.py`) |
+| `tools/figextract.sh` | crop figures out of the PDF → PNG crops + manifest |
+| `tools/detect.sh` | OCR (Tesseract): detect label boxes for image occlusion |
+| `tools/lint_cards.py` | fast content/structure check (pure Python, no Docker) |
+| `tools/grounding_check.py` | anti-hallucination: are the answers really in the source text? |
+| `tools/coverage.py` | near-duplicates + source-page coverage across a whole topic |
+| `tools/build.sh` | card JSON → `.apkg` (genanki); also bundles several JSONs into one file |
+| `tools/preview.sh` | cards → PNG previews, light + night mode (headless Chromium) |
+| `tools/validate.sh` | check the `.apkg` in the real Anki engine (import + render) |
+| `tools/finish.sh` | shortcut: lint + grounding (+ coverage) + build + validate in one |
+| `tools/apkg_to_cards.py` | `.apkg` → `cards.json` back, GUIDs preserved (edit learned decks without losing progress) |
+| `tools/test.sh` | test suite of the logic tools (stdlib `unittest`, no Docker/pip) |
 
-## Ordnerstruktur
+## Folder structure
 
 ```
-quellen/<Thema>/          deine Quelldateien (lokal, nicht versioniert)
-aufbereitet/<Thema>/      Markdown-Extrakte der Quellen (lokal, via extract.sh)
-decks/<Thema>/            erzeugte .cards.json + .apkg (lokal; nur Beispiel im Repo)
-tools/                    Aufbereitung, Bau, Prüfung — siehe Werkzeug-Tabelle oben
-.claude/skills/kartenbau/ evidenzbasierte Methodik fürs Kartenschreiben
-reference/                lokale Anki-Nachschlagewerke (nicht im Repo, s. reference/README.md)
-CLAUDE.md                 Anleitung + Karten-Format für Claude
+sources/<topic>/           your source files (local, not versioned)
+extracted/<topic>/         Markdown extracts + figure crops (local, via prep.sh)
+decks/<topic>/             generated .cards.json + .apkg (local; only the example in the repo)
+tools/                     preparation, build, checks — see the tools table
+tests/                     stdlib test suite of the logic tools
+.claude/skills/card-authoring/  evidence-based methodology for writing cards
+.githooks/                 pre-commit guard for the public repo
+reference/                 local Anki reference clones (not in the repo, see reference/README.md)
+CLAUDE.md                  the project guide Claude follows (workflow + card format)
 ```
 
-Deine Quellen, Extrakte und erzeugten Decks bleiben **lokal** (per `.gitignore`) —
-das Repo enthält nur die Werkzeuge und ein Beispiel-Deck.
+## Privacy: your material stays local
 
-## Unterstützen
+Your sources, extracts and generated decks never leave your machine — they are
+excluded via `.gitignore`, and a **commit guard** (`.githooks/pre-commit`,
+enabled with `git config core.hooksPath .githooks`) additionally blocks commits
+that would add personal material (PDFs, `.apkg`, files under `sources/`,
+`extracted/`, `decks/`) — even with `git add -f`. The repo itself contains only
+the tools, the methodology and one example deck.
 
-Das Projekt ist kostenlos und Open Source. Wenn es dir hilft und du gerade gut
-drauf bist, freue ich mich über ein Trinkgeld über den **Sponsor-Button** oben am
-Repo (eingerichtet in [.github/FUNDING.yml](.github/FUNDING.yml)). Kein Muss —
-Sternchen ⭐ und Feedback helfen genauso.
+## License
 
-## Lizenz
-
-[MIT](LICENSE). Dieses Projekt enthält **keinen** Anki-Quellcode; es erzeugt
-`.apkg`-Dateien über [`genanki`](https://github.com/kerrickstaley/genanki) (MIT).
-Anki selbst steht unter der AGPL-3.0 und ist hier nicht enthalten.
+[MIT](LICENSE). This project contains **no** Anki source code; it produces
+`.apkg` files via [`genanki`](https://github.com/kerrickstaley/genanki) (MIT).
+Anki itself is AGPL-3.0 licensed and not included here.

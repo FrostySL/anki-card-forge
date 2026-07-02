@@ -1,8 +1,8 @@
-"""Smoke-Test fuer tools/build_deck.py: baut ein Mini-Deck jedes Typs zu einer .apkg.
+"""Smoke test for tools/build_deck.py: builds a mini deck of each type into an .apkg.
 
-Braucht genanki -> nur im Build-Container (anki-karten) vorhanden. Auf dem Host ohne
-genanki ueberspringt sich der Test selbst. Im Container laufen lassen z. B. mit:
-    docker run --rm -v "$PWD":/work --entrypoint python anki-karten \
+Needs genanki -> only present in the build container (anki-cards). On the host
+without genanki the test skips itself. Run inside the container e.g. with:
+    docker run --rm -v "$PWD":/work --entrypoint python anki-cards \
         -m unittest discover -s /work/tests
 """
 import json
@@ -20,14 +20,14 @@ except Exception:
     HAVE_GENANKI = False
 
 
-@unittest.skipUnless(HAVE_GENANKI, "genanki nicht installiert (nur im Build-Container)")
+@unittest.skipUnless(HAVE_GENANKI, "genanki not installed (build container only)")
 class TestBuildSmoke(unittest.TestCase):
     def test_builds_valid_apkg(self):
         with tempfile.TemporaryDirectory() as d:
             cards = Path(d) / "t.cards.json"
             cards.write_text(json.dumps({"deck": "T::Smoke", "cards": [
                 {"type": "basic", "front": "Q", "back": "A"},
-                {"type": "cloze", "text": "Die {{c1::Antwort}}."},
+                {"type": "cloze", "text": "The {{c1::answer}}."},
                 {"type": "typein", "front": "Q2", "back": "A2"},
             ]}), encoding="utf-8")
             out = Path(d) / "t.apkg"
