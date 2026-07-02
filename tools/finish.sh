@@ -12,9 +12,11 @@
 # false alarms) — still read the output. For occlusion cards, also run
 # ./tools/preview.sh and look at the PNGs.
 #
-# --push  imports the finished .apkg straight into a running Anki via the
-#         AnkiConnect add-on (see tools/anki_connect.py; optional feature).
-# --sync  additionally triggers AnkiWeb sync afterwards (requires --push).
+# --push   imports the finished .apkg straight into a running Anki via the
+#          AnkiConnect add-on (see tools/anki_connect.py; optional feature).
+# --prune  with --push: also delete notes that were removed from the package
+#          (GUID diff; only when the user asked to remove cards).
+# --sync   additionally triggers AnkiWeb sync afterwards (requires --push).
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,20 +24,26 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUTS=()
 OUT=""
 PUSH=0
+PRUNE=0
 SYNC=0
 for arg in "$@"; do
   case "$arg" in
     --push) PUSH=1 ;;
+    --prune) PRUNE=1 ;;
     --sync) SYNC=1 ;;
     *.apkg)
       [ -z "$OUT" ] || { echo "Only ONE target .apkg allowed ('$OUT' and '$arg')." >&2; exit 1; }
       OUT="$arg" ;;
     *.json) INPUTS+=("$arg") ;;
-    *) echo "Unknown argument: $arg (expected *.cards.json, *.apkg, --push or --sync)" >&2; exit 1 ;;
+    *) echo "Unknown argument: $arg (expected *.cards.json, *.apkg, --push, --prune or --sync)" >&2; exit 1 ;;
   esac
 done
 if [ "$SYNC" -eq 1 ] && [ "$PUSH" -eq 0 ]; then
   echo "--sync requires --push (sync without importing makes no sense here)." >&2
+  exit 1
+fi
+if [ "$PRUNE" -eq 1 ] && [ "$PUSH" -eq 0 ]; then
+  echo "--prune requires --push." >&2
   exit 1
 fi
 if [ ${#INPUTS[@]} -eq 0 ]; then
@@ -73,7 +81,9 @@ echo "== Validate (real Anki engine) =="
 
 if [ "$PUSH" -eq 1 ]; then
   echo "== Push into Anki (AnkiConnect) =="
-  python3 "$DIR/anki_connect.py" push "$OUT"
+  PUSH_ARGS=()
+  [ "$PRUNE" -eq 1 ] && PUSH_ARGS+=(--prune)
+  python3 "$DIR/anki_connect.py" push "${PUSH_ARGS[@]}" "$OUT"
   if [ "$SYNC" -eq 1 ]; then
     python3 "$DIR/anki_connect.py" sync
   fi
