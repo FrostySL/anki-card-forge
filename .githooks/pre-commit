@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Schutz fuers OEFFENTLICHE Repo: blockiert Commits, die persoenliches Material
+# hinzufuegen wuerden (Kursmaterial in quellen/, Extrakte in aufbereitet/, eigene
+# Decks, PDFs/Anki-Pakete) — greift auch bei 'git add -f', wo die .gitignore
+# machtlos ist. Hintergrund: genau so ein Unfall erforderte am 23.06.2026 eine
+# History-Bereinigung.
+#
+# Einmalig aktivieren (pro Clone):  git config core.hooksPath .githooks
+# Bewusst umgehen (nur wenn sicher unpersoenlich): git commit --no-verify
+set -euo pipefail
+
+# Neue Dateien (Added/Copied/Renamed) muessen aus diesen Pfaden kommen. Bereits
+# getrackte Dateien zu aendern ist immer ok (die haben das Gate schon passiert).
+allowed() {
+  case "$1" in
+    tools/*|tests/*|.claude/*|.github/*|.githooks/*) return 0 ;;
+    reference/README.md|quellen/.gitkeep|decks/.gitkeep) return 0 ;;
+    decks/beispiel.cards.json) return 0 ;;
+    */*) return 1 ;;  # alle anderen Unterordner: potenziell persoenlich
+    *) return 0 ;;    # Root-Dateien (README.md, CLAUDE.md, Dockerfile*, ...) ok
+  esac
+}
+
+bad=0
+while IFS= read -r f; do
+  case "$f" in
+    *.pdf|*.apkg|*.colpkg)
+      echo "BLOCKIERT: $f — PDF/Anki-Paket gehoert nicht ins oeffentliche Repo." >&2
+      bad=1
+      continue ;;
+  esac
+  if ! allowed "$f"; then
+    echo "BLOCKIERT: $f — Pfad ist nicht in der Allowlist fuers oeffentliche Repo" >&2
+    echo "           (persoenliches Material? quellen/, aufbereitet/, decks/ bleiben lokal)." >&2
+    bad=1
+  fi
+done < <(git diff --cached --name-only --diff-filter=ACR)
+
+if [ "$bad" -ne 0 ]; then
+  echo >&2
+  echo "Commit abgebrochen (.githooks/pre-commit). Datei wirklich gemeint und" >&2
+  echo "sicher unpersoenlich? -> Allowlist im Hook erweitern oder 'git commit --no-verify'." >&2
+  exit 1
+fi

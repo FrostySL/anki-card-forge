@@ -38,11 +38,18 @@ Anki-Engine). Die Methodik dafür steht in [CLAUDE.md](CLAUDE.md) und im
 ## Einrichtung (einmalig)
 
 ```bash
-docker build -t anki-karten .          # schlankes Builder-Image
+docker build -t anki-karten .            # schlankes Builder-Image
+git config core.hooksPath .githooks      # Commit-Guard aktivieren (s. u.)
 ```
 
 Die größeren Images (Vorschau/OCR, Quellen-Aufbereitung) werden beim ersten Aufruf
 der jeweiligen `tools/*.sh` automatisch gebaut.
+
+Der **Commit-Guard** (`.githooks/pre-commit`) verhindert, dass persönliches
+Material (Quellen-PDFs, Extrakte, eigene Decks) versehentlich in diesem
+öffentlichen Repo landet — auch bei `git add -f`, wo die `.gitignore` nicht mehr
+greift. Neue Dateien sind nur aus Werkzeug-/Doku-Pfaden erlaubt; bewusst umgehen:
+`git commit --no-verify`.
 
 ## Kartentypen
 
