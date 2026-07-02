@@ -109,6 +109,15 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
   so `push` first exports every affected existing deck (with scheduling) to
   `decks/_anki-backups/<timestamp>/` (gitignored, newest 10 kept). Restore =
   push the backup `.apkg`. Only use `--no-backup` if the user explicitly asks.
+- **Removing cards = `push --prune`, only on request:** a plain import never
+  deletes (Anki merges — even an empty same-name deck deletes nothing), so
+  cards removed in a rework linger in Anki. Use `--prune` (or
+  `finish.sh --push --prune`) **only when the user asked to remove cards**.
+  It diffs GUIDs against the fresh backup (hence incompatible with
+  `--no-backup`), lists every note it deletes, and **aborts the whole push
+  before importing** if a deck shares no GUID with the package — that means
+  the rebuild lost the GUIDs; fix that first (`tools/apkg_to_cards.py`), never
+  work around the refusal.
 - **Sync is explicit:** only on the user's request (`sync` / `finish.sh --sync`)
   — and only after the import result has been confirmed as correct, so a bad
   state never propagates to AnkiWeb/phone.

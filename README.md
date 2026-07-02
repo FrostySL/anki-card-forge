@@ -177,14 +177,24 @@ Built-in safeguards:
 
 - **Nothing destructive is callable.** The tool only allows a small safe list of
   AnkiConnect actions (import, export, sync, deck listing); deleting decks or
-  notes through it is locked out by design.
+  notes through it is locked out by design. A plain import can never delete
+  anything either — Anki merges, so even pushing an empty deck of the same name
+  leaves your cards untouched.
 - **Automatic backup before every push.** An import overwrites the fields of
   same-GUID notes, so `push` first exports every affected existing deck (with
   scheduling) to `decks/_anki-backups/<timestamp>/` (gitignored, newest 10
   kept). Something went wrong? Push the backup `.apkg` to restore the previous
   content. Skip with `--no-backup`.
+- **Removing cards is explicit and reversible.** Because imports only merge,
+  cards you cut from a reworked deck would linger in Anki forever. The one
+  sanctioned way to remove them is `push --prune`: it deletes exactly the notes
+  whose GUIDs vanished from the package, lists each one, requires the fresh
+  backup as its diff baseline and restore path, and refuses outright if a deck
+  shares **no** GUID with the package (the telltale sign of a rebuild that lost
+  its GUIDs — pruning then would wipe the deck's learning progress).
 - **Sync never happens implicitly** — only via an explicit `sync` /
-  `finish.sh --sync`.
+  `finish.sh --sync`, so nothing broken propagates to AnkiWeb or your phone
+  before you have seen the import result.
 
 ## Updating an already-learned deck (without losing progress)
 

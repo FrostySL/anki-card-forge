@@ -181,6 +181,113 @@ class TestPush(unittest.TestCase):
         self.assertEqual(exports, ["A"])
 
 
+class TestOrphans(unittest.TestCase):
+    """Pure diff logic of push --prune (which notes may be deleted)."""
+
+    def test_only_removed_guids_in_package_decks(self):
+        anki_notes = {
+            "g1": (11, "A", "kept card"),
+            "g2": (12, "A", "<b>removed</b> card"),
+            "g3": (13, "A::Other", "sibling deck, not in package"),
+        }
+        orphans = ac._orphans(anki_notes, package_guids={"g1", "gNew"},
+                              package_decks={"A"})
+        self.assertEqual(orphans, [(12, "A", "removed card")])  # HTML stripped
+
+    def test_moved_note_is_kept(self):
+        # guid still in the package (in another deck) -> not an orphan
+        anki_notes = {"g1": (11, "A", "x"), "g2": (12, "A", "y")}
+        orphans = ac._orphans(anki_notes, package_guids={"g1", "g2"},
+                              package_decks={"A", "B"})
+        self.assertEqual(orphans, [])
+
+    def test_zero_guid_overlap_refused(self):
+        # no shared GUID = rebuild lost the GUIDs -> refuse instead of wiping
+        anki_notes = {"old1": (11, "A", "x"), "old2": (12, "A", "y")}
+        with self.assertRaisesRegex(ac.AnkiConnectError, "0 shared GUIDs"):
+            ac._orphans(anki_notes, package_guids={"new1", "new2"},
+                        package_decks={"A"})
+
+
+class TestPushPrune(unittest.TestCase):
+    def test_prune_requires_backup(self):
+        with self.assertRaisesRegex(ac.AnkiConnectError, "--no-backup"):
+            with tempfile.NamedTemporaryFile(suffix=".apkg") as f:
+                ac.push(f.name, backup=False, prune=True)
+
+    def _push_prune(self, anki_notes, package_guids, responses):
+        fake, payloads = urlopen_mock(
+            {"result": ["A"], "error": None},  # deckNames
+            *responses)
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                open("in.apkg", "wb").close()
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
+                        mock.patch.object(ac, "_package_guids",
+                                          lambda p: set(package_guids)), \
+                        mock.patch.object(ac, "_notes_with_decks",
+                                          lambda p: dict(anki_notes)):
+                    out = io.StringIO()
+                    with redirect_stdout(out):
+                        ac.push("in.apkg", prune=True)
+            finally:
+                os.chdir(cwd)
+        return payloads, out.getvalue()
+
+    def test_prune_deletes_orphans_after_import(self):
+        payloads, out = self._push_prune(
+            anki_notes={"g1": (11, "A", "kept"), "g2": (12, "A", "removed")},
+            package_guids={"g1"},
+            responses=[
+                {"result": True, "error": None},  # exportPackage (backup)
+                {"result": True, "error": None},  # importPackage
+                {"result": None, "error": None},  # deleteNotes
+            ])
+        actions = [p["action"] for p in payloads]
+        self.assertEqual(actions,
+                         ["deckNames", "exportPackage", "importPackage", "deleteNotes"])
+        self.assertEqual(payloads[3]["params"]["notes"], [12])
+        self.assertIn("removed", out)
+
+    def test_refusal_aborts_before_import(self):
+        # zero GUID overlap -> the push must fail WITHOUT importing anything
+        fake, payloads = urlopen_mock(
+            {"result": ["A"], "error": None},  # deckNames
+            {"result": True, "error": None},   # exportPackage (backup)
+        )
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                open("in.apkg", "wb").close()
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
+                        mock.patch.object(ac, "_package_guids", lambda p: {"new"}), \
+                        mock.patch.object(ac, "_notes_with_decks",
+                                          lambda p: {"old": (11, "A", "x")}):
+                    with redirect_stdout(io.StringIO()):
+                        with self.assertRaisesRegex(ac.AnkiConnectError, "Prune refused"):
+                            ac.push("in.apkg", prune=True)
+            finally:
+                os.chdir(cwd)
+        self.assertEqual([p["action"] for p in payloads],
+                         ["deckNames", "exportPackage"])  # no importPackage
+
+    def test_prune_with_nothing_removed_deletes_nothing(self):
+        payloads, out = self._push_prune(
+            anki_notes={"g1": (11, "A", "kept")},
+            package_guids={"g1", "gNew"},
+            responses=[
+                {"result": True, "error": None},  # exportPackage (backup)
+                {"result": True, "error": None},  # importPackage
+            ])
+        self.assertNotIn("deleteNotes", [p["action"] for p in payloads])
+        self.assertIn("nothing to delete", out)
+
+
 class TestBackupHelpers(unittest.TestCase):
     def test_covering(self):
         self.assertEqual(ac._covering({"A", "A::B", "A::B::C", "D::E"}),

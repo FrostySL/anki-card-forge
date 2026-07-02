@@ -10,7 +10,7 @@ Requires:
 
 Usage:
     python3 tools/anki_connect.py ping
-    python3 tools/anki_connect.py push <file.apkg> [--no-backup]
+    python3 tools/anki_connect.py push <file.apkg> [--no-backup] [--prune]
     python3 tools/anki_connect.py export "<Deck::Name>" <out.apkg>
     python3 tools/anki_connect.py sync
     python3 tools/anki_connect.py mirror [deck ...]
@@ -24,6 +24,11 @@ Safeguards:
     destructive ones (deleteDecks, deleteNotes, ...) are locked out.
   - `push` first backs up every affected existing deck (with scheduling) to
     decks/_anki-backups/<timestamp>/ — restore by pushing the backup .apkg.
+  - A plain import never deletes anything (Anki merges). Removing cards from a
+    reworked deck requires the explicit `push --prune`, which deletes exactly
+    the notes whose GUIDs vanished from the package — listed one by one, only
+    with a fresh backup, and refused entirely if a deck shares no GUID with
+    the package (symptom of a rebuild that lost the GUIDs).
 """
 import argparse
 import json
@@ -74,6 +79,12 @@ def invoke(action, **params):
             "are deliberately locked; set ANKICONNECT_ALLOW_UNSAFE=1 only if you "
             "know exactly what you are doing."
         )
+    return _call(action, params)
+
+
+def _call(action, params):
+    """The raw HTTP call, without the SAFE_ACTIONS guard — only invoke() and
+    the tightly guarded prune path may use this directly."""
     payload = json.dumps({"action": action, "version": 6, "params": params}).encode("utf-8")
     req = urllib.request.Request(URL, data=payload, headers={"Content-Type": "application/json"})
     try:
@@ -149,36 +160,137 @@ def _prune_backups(keep=BACKUP_KEEP):
 
 def _backup_decks(deck_names):
     """Exports decks (WITH scheduling) into a timestamped backup folder.
-    Restore = push the backup .apkg again (GUIDs -> notes revert)."""
+    Restore = push the backup .apkg again (GUIDs -> notes revert).
+    Returns the list of written .apkg paths."""
     outdir = os.path.join(BACKUP_DIR, time.strftime("%Y%m%d-%H%M%S"))
     os.makedirs(outdir, exist_ok=True)
+    paths = []
     for deck in deck_names:
         path = os.path.join(outdir, _safe_name(deck) + ".apkg")
         invoke("exportPackage", deck=deck, path=os.path.abspath(path), includeSched=True)
         print(f"Backup: '{deck}' -> {path}")
+        paths.append(path)
     _prune_backups()
-    return outdir
+    return paths
 
 
-def push(apkg_path, backup=True):
+def _package_guids(apkg_path):
+    """All note GUIDs in an .apkg."""
+    atc = _apkg_to_cards()
+    con, tmp = atc.open_collection(apkg_path)
+    try:
+        return {g for (g,) in con.execute("SELECT guid FROM notes")}
+    finally:
+        con.close()
+        os.unlink(tmp)
+
+
+def _notes_with_decks(apkg_path):
+    """{guid: (note id, deck name, first field)} of an .apkg. Note ids in an
+    Anki export are the live collection's ids -> usable for deleteNotes."""
+    atc = _apkg_to_cards()
+    con, tmp = atc.open_collection(apkg_path)
+    try:
+        _ntype, decks, _schema = atc._maps(con)
+        note_deck = {nid: decks.get(did, "Default")
+                     for nid, did in con.execute("SELECT nid, MIN(did) FROM cards GROUP BY nid")}
+        out = {}
+        for nid, guid, flds in con.execute("SELECT id, guid, flds FROM notes"):
+            out[guid] = (nid, note_deck.get(nid, "Default"), flds.split(atc.FIELD_SEP)[0])
+    finally:
+        con.close()
+        os.unlink(tmp)
+    return out
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _snippet(html_text, limit=60):
+    text = " ".join(_TAG_RE.sub(" ", html_text).split())
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def _orphans(anki_notes, package_guids, package_decks):
+    """Notes a prune-push may delete: they live in a deck the package writes to,
+    but their GUID appears nowhere in the package (= card was removed in the
+    rework; a note merely MOVED to another package deck keeps its GUID and is
+    kept).
+
+    Refuses when a deck shares NO GUID with the package at all — the typical
+    symptom of a rebuild that lost the GUIDs; pruning then would replace the
+    whole deck and wipe its learning progress.
+    """
+    by_deck = {}
+    for guid, (nid, deck, front) in anki_notes.items():
+        if deck in package_decks:
+            by_deck.setdefault(deck, []).append((guid, nid, front))
+    orphans = []
+    for deck, notes in sorted(by_deck.items()):
+        gone = [(nid, deck, _snippet(front))
+                for guid, nid, front in notes if guid not in package_guids]
+        if gone and len(gone) == len(notes):
+            raise AnkiConnectError(
+                f"Prune refused: not a single card of deck '{deck}' matches the "
+                "package (0 shared GUIDs). That usually means the rebuild lost "
+                "the note GUIDs — pruning would replace the whole deck and wipe "
+                "its learning progress. Rebuild with preserved GUIDs "
+                "(tools/apkg_to_cards.py) and try again. Nothing was imported."
+            )
+        orphans += gone
+    return orphans
+
+
+def push(apkg_path, backup=True, prune=False):
     """Imports a built .apkg into Anki's collection (importPackage).
 
     Safety net: same-GUID notes get their fields OVERWRITTEN by the import, so
     by default every deck that exists in Anki AND is part of the package is
     exported to decks/_anki-backups/<timestamp>/ first (gitignored, newest
     10 kept). Disable consciously with backup=False / --no-backup.
+
+    prune=True (--prune): an import can never REMOVE notes — cards taken out
+    of a reworked deck would linger in Anki forever. Prune deletes exactly
+    those leftovers (GUID diff against the fresh backup), computed BEFORE the
+    import so a refusal aborts the push untouched. Requires the backup.
     """
     if not os.path.isfile(apkg_path):
         raise FileNotFoundError(apkg_path)
+    if prune and not backup:
+        raise AnkiConnectError(
+            "--prune needs the automatic backup as its diff baseline (and as "
+            "the restore path) — do not combine it with --no-backup."
+        )
+    backup_paths = []
+    orphans = []
     if backup:
         existing = set(invoke("deckNames"))
-        affected = _covering(_decks_in_apkg(apkg_path) & existing)
+        package_decks = _decks_in_apkg(apkg_path)
+        affected = _covering(package_decks & existing)
         if affected:
-            _backup_decks(affected)
+            backup_paths = _backup_decks(affected)
         else:
             print("Backup: no existing deck affected, nothing to save.")
+        if prune and backup_paths:
+            anki_notes = {}
+            for path in backup_paths:
+                anki_notes.update(_notes_with_decks(path))
+            orphans = _orphans(anki_notes, _package_guids(apkg_path), package_decks)
+
     invoke("importPackage", path=os.path.abspath(apkg_path))
     print(f"OK: imported {apkg_path} into Anki.")
+
+    if prune:
+        if not orphans:
+            print("Prune: no removed cards, nothing to delete.")
+            return
+        print(f"Prune: deleting {len(orphans)} note(s) that were removed from the package:")
+        for _nid, deck, front in orphans:
+            print(f"  - [{deck}] {front}")
+        # deliberate bypass of the SAFE_ACTIONS guard: exactly these listed
+        # notes, diffed against the backup taken seconds ago (= restore path).
+        _call("deleteNotes", {"notes": [nid for nid, _, _ in orphans]})
+        print(f"Prune: done. Restore if needed: push the backup from {os.path.dirname(backup_paths[0])}/")
 
 
 def export(deck_name, out_path):
@@ -270,6 +382,9 @@ def main(argv):
     p_push.add_argument("apkg", help="path to the .apkg to import")
     p_push.add_argument("--no-backup", action="store_true",
                         help="skip the automatic backup of affected decks")
+    p_push.add_argument("--prune", action="store_true",
+                        help="after the import, delete notes that were removed "
+                             "from the package (GUID diff; needs the backup)")
 
     p_export = sub.add_parser("export", help="export a deck to .apkg (with scheduling)")
     p_export.add_argument("deck", help="Anki deck name, e.g. 'Biology::Respiration'")
@@ -288,7 +403,7 @@ def main(argv):
         if args.cmd == "ping":
             ping()
         elif args.cmd == "push":
-            push(args.apkg, backup=not args.no_backup)
+            push(args.apkg, backup=not args.no_backup, prune=args.prune)
         elif args.cmd == "export":
             export(args.deck, args.out)
         elif args.cmd == "sync":
