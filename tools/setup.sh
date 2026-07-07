@@ -56,11 +56,8 @@ else
 fi
 
 info "building the bundled example deck…"
-# The output path must be RELATIVE to the project: build.sh mounts PROJECT_DIR
-# at /work in the container, so an absolute host path resolves to a
-# non-existent location inside it (and a /tmp path would be written in the
-# container and lost). We are cd'd into PROJECT_DIR, so a relative path works
-# on both sides. decks/*.apkg is gitignored -> nothing tracked is left behind.
+# A project-relative output path (build.sh maps it to /work in the container).
+# decks/*.apkg is gitignored -> nothing tracked is left behind.
 smoke_apkg="decks/.setup-smoke.apkg"
 trap 'rm -f "$PROJECT_DIR/$smoke_apkg"' EXIT
 if ./tools/build.sh decks/example.cards.json "$smoke_apkg" >/dev/null 2>&1 && [ -f "$smoke_apkg" ]; then
