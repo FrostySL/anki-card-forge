@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (stdlib + genanki)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # genanki lets the build_deck smoke tests run instead of skipping; zstd
+      # covers the modern .apkg decompression path. Everything else is stdlib.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "genanki==0.13.1"
+          sudo apt-get update && sudo apt-get install -y zstd
+      - name: Run the test suite
+        run: ./tools/test.sh
+
+  shellcheck:
+    name: shellcheck (shell scripts + commit guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # shellcheck is preinstalled on ubuntu-latest runners.
+      - name: Lint shell scripts
+        run: shellcheck tools/*.sh .githooks/pre-commit

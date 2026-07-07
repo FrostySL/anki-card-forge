@@ -1,0 +1,5 @@
+# The images COPY nothing — the project is mounted to /work at runtime (see the
+# Dockerfiles). So the build context can be empty: this keeps `docker build` from
+# streaming the whole repo (100+ MB, including your private sources/) to the
+# daemon. Only the Dockerfile itself is read.
+*
