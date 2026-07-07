@@ -36,3 +36,16 @@ jobs:
       # sourced tools/_dockerlib.sh so the wrappers are checked with it inlined.
       - name: Lint shell scripts
         run: shellcheck -x tools/*.sh .githooks/pre-commit
+
+  hadolint:
+    name: hadolint (Dockerfiles)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Run hadolint from its own image (no marketplace action to keep in sync).
+      - name: Lint Dockerfiles
+        run: |
+          for df in Dockerfile Dockerfile.*; do
+            echo "== $df =="
+            docker run --rm -i hadolint/hadolint hadolint - < "$df"
+          done
