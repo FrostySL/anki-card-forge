@@ -37,10 +37,18 @@ def urlopen_mock(*responses):
     queue = list(responses)
 
     def fake(req, timeout=None):
-        payloads.append(json.loads(req.data.decode("utf-8")))
+        payload = json.loads(req.data.decode("utf-8"))
+        payloads.append(payload)
         body = queue.pop(0)
         if isinstance(body, Exception):
             raise body
+        # Behave like real AnkiConnect: a successful exportPackage writes the
+        # target file (the client verifies its existence since the export fix).
+        if (payload["action"] == "exportPackage" and isinstance(body, dict)
+                and body.get("result") is True):
+            path = payload["params"]["path"]
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            open(path, "wb").close()
         return FakeResponse(body)
 
     return fake, payloads
@@ -137,6 +145,8 @@ class TestPush(unittest.TestCase):
             try:
                 open("in.apkg", "wb").close()
                 with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR",
+                                          os.path.join(d, "_anki-backups")), \
                         mock.patch.object(ac, "_decks_in_apkg",
                                           lambda p: set(package_decks)):
                     out = io.StringIO()
@@ -158,7 +168,7 @@ class TestPush(unittest.TestCase):
         backup = payloads[1]["params"]
         self.assertEqual(backup["deck"], "Bio::Resp")
         self.assertTrue(backup["includeSched"])
-        self.assertIn(ac.BACKUP_DIR, backup["path"])
+        self.assertIn("_anki-backups", backup["path"])
         self.assertIn("Backup: 'Bio::Resp'", out)
 
     def test_backup_skips_new_decks(self):
@@ -225,6 +235,8 @@ class TestPushPrune(unittest.TestCase):
             try:
                 open("in.apkg", "wb").close()
                 with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR",
+                                          os.path.join(d, "_anki-backups")), \
                         mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
                         mock.patch.object(ac, "_package_guids",
                                           lambda p: set(package_guids)), \
@@ -264,6 +276,8 @@ class TestPushPrune(unittest.TestCase):
             try:
                 open("in.apkg", "wb").close()
                 with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR",
+                                          os.path.join(d, "_anki-backups")), \
                         mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
                         mock.patch.object(ac, "_package_guids", lambda p: {"new"}), \
                         mock.patch.object(ac, "_notes_with_decks",
@@ -303,7 +317,9 @@ class TestUpdateNote(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             os.chdir(d)
             try:
-                with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR",
+                                          os.path.join(d, "_anki-backups")):
                     out = io.StringIO()
                     with redirect_stdout(out):
                         ac.update_note(42, fields, backup=backup)
@@ -360,16 +376,12 @@ class TestBackupHelpers(unittest.TestCase):
         self.assertEqual(ac._covering(set()), [])
 
     def test_prune_keeps_newest(self):
-        cwd = os.getcwd()
         with tempfile.TemporaryDirectory() as d:
-            os.chdir(d)
-            try:
+            with mock.patch.object(ac, "BACKUP_DIR", os.path.join(d, "b")):
                 for i in range(12):
                     os.makedirs(os.path.join(ac.BACKUP_DIR, f"20260702-0000{i:02d}"))
                 ac._prune_backups(keep=10)
                 left = sorted(os.listdir(ac.BACKUP_DIR))
-            finally:
-                os.chdir(cwd)
         self.assertEqual(len(left), 10)
         self.assertEqual(left[0], "20260702-000002")  # the two oldest are gone
 
@@ -400,12 +412,14 @@ class TestMirror(unittest.TestCase):
             os.chdir(d)
             try:
                 with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "MIRROR_DIR",
+                                          os.path.join(d, "_anki-mirror")), \
                         mock.patch.object(ac, "_decode_apkg", decode):
                     out, err = io.StringIO(), io.StringIO()
                     with redirect_stdout(out), redirect_stderr(err):
                         ac.mirror(deck_names)
-                if check:
-                    check()
+                    if check:
+                        check()  # inside the patch: sees the patched MIRROR_DIR
             finally:
                 os.chdir(cwd)
         return payloads, out.getvalue(), err.getvalue()
@@ -473,12 +487,116 @@ class TestMirror(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             os.chdir(d)
             try:
-                with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "MIRROR_DIR",
+                                          os.path.join(d, "_anki-mirror")):
                     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                         with self.assertRaisesRegex(ac.AnkiConnectError, "No deck"):
                             ac.mirror(["OnlyDeck"])
             finally:
                 os.chdir(cwd)
+
+
+class TestExportVerification(unittest.TestCase):
+    """exportPackage returns `false` WITHOUT an error envelope (e.g. unknown
+    deck) — regression tests for the fix that stops reporting that as OK."""
+
+    def test_false_result_raises_and_removes_stale_file(self):
+        fake, _ = urlopen_mock({"result": False, "error": None})
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "x.apkg")
+            with open(out, "wb") as fh:
+                fh.write(b"stale export from an earlier run")
+            with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                with self.assertRaisesRegex(ac.AnkiConnectError, "failed"):
+                    ac.export("No::Such::Deck", out)
+            # The stale file must be gone — it could otherwise pass as fresh.
+            self.assertFalse(os.path.exists(out))
+
+    def test_true_result_without_file_raises(self):
+        def fake(req, timeout=None):  # claims success but writes nothing
+            return FakeResponse({"result": True, "error": None})
+
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                with self.assertRaisesRegex(ac.AnkiConnectError, "missing"):
+                    ac.export("Deck", os.path.join(d, "x.apkg"))
+
+    def test_backup_failure_aborts_push(self):
+        # The backup safety net must never fail silently before an import.
+        fake, payloads = urlopen_mock(
+            {"result": ["A"], "error": None},   # deckNames
+            {"result": False, "error": None},   # exportPackage (backup) FAILS
+        )
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                open("in.apkg", "wb").close()
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR", os.path.join(d, "b")), \
+                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}):
+                    with redirect_stdout(io.StringIO()):
+                        with self.assertRaises(ac.AnkiConnectError):
+                            ac.push("in.apkg")
+            finally:
+                os.chdir(cwd)
+        self.assertNotIn("importPackage", [p["action"] for p in payloads])
+
+
+class TestImportVerification(unittest.TestCase):
+    """importPackage also returns `false` without an error (e.g. profile picker
+    open, no collection loaded) — that must fail loudly, and prune must not run."""
+
+    def test_false_import_result_raises(self):
+        fake, _ = urlopen_mock({"result": False, "error": None})
+        with tempfile.NamedTemporaryFile(suffix=".apkg") as f:
+            with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                with self.assertRaisesRegex(ac.AnkiConnectError, "Import failed"):
+                    ac.push(f.name, backup=False)
+
+    def test_failed_import_never_prunes(self):
+        fake, payloads = urlopen_mock(
+            {"result": ["A"], "error": None},   # deckNames
+            {"result": True, "error": None},    # exportPackage (backup)
+            {"result": False, "error": None},   # importPackage FAILS
+        )
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                open("in.apkg", "wb").close()
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR", os.path.join(d, "b")), \
+                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
+                        mock.patch.object(ac, "_package_guids", lambda p: {"g1"}), \
+                        mock.patch.object(ac, "_notes_with_decks",
+                                          lambda p: {"g1": (11, "A", "kept"),
+                                                     "gone": (12, "A", "removed")}):
+                    with redirect_stdout(io.StringIO()):
+                        with self.assertRaisesRegex(ac.AnkiConnectError, "Import failed"):
+                            ac.push("in.apkg", prune=True)
+            finally:
+                os.chdir(cwd)
+        self.assertNotIn("deleteNotes", [p["action"] for p in payloads])
+
+
+class TestSafeNames(unittest.TestCase):
+    def test_collisions_get_numeric_suffix(self):
+        # 'A::B', 'A B' and 'A_B' all sanitize to 'A_B' — without suffixes the
+        # later backups/mirrors would overwrite the earlier ones.
+        names = ac._unique_safe_names(["A::B", "A B", "A_B"])
+        self.assertEqual(names["A::B"], "A_B")
+        self.assertEqual(sorted(names.values()), ["A_B", "A_B_2", "A_B_3"])
+
+
+class TestAnchoredDirs(unittest.TestCase):
+    def test_backup_and_mirror_dirs_anchored_at_repo_root(self):
+        # Relative dirs would scatter backups into whatever cwd the tool runs
+        # from — outside the gitignored decks/ and the commit guard.
+        for path in (ac.BACKUP_DIR, ac.MIRROR_DIR):
+            self.assertTrue(os.path.isabs(path))
+            self.assertEqual(os.path.basename(os.path.dirname(path)), "decks")
 
 
 if __name__ == "__main__":

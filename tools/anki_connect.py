@@ -123,7 +123,11 @@ def _apkg_to_cards():
     return apkg_to_cards
 
 
-BACKUP_DIR = os.path.join("decks", "_anki-backups")
+# Anchored at the repo root (parent of tools/), NOT the caller's cwd — otherwise
+# a call from elsewhere would scatter backups/mirrors outside the gitignored
+# decks/ folder and _prune_backups would rotate the wrong directory.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKUP_DIR = os.path.join(_ROOT, "decks", "_anki-backups")
 BACKUP_KEEP = 10
 
 
@@ -163,6 +167,41 @@ def _prune_backups(keep=BACKUP_KEEP):
         shutil.rmtree(os.path.join(BACKUP_DIR, d))
 
 
+def _export_package(deck, path):
+    """exportPackage with result verification. AnkiConnect returns `false`
+    WITHOUT an error envelope e.g. for an unknown deck name — that must never
+    pass as success (the backup safety net would silently be missing). Any
+    pre-existing file at the target is removed first, so a failed export can
+    never leave a stale .apkg behind that looks like a fresh one."""
+    abs_path = os.path.abspath(path)
+    if os.path.exists(abs_path):
+        os.unlink(abs_path)
+    result = invoke("exportPackage", deck=deck, path=abs_path, includeSched=True)
+    if result is not True or not os.path.isfile(abs_path):
+        raise AnkiConnectError(
+            f"Export of deck '{deck}' failed (exportPackage returned {result!r}, "
+            f"file {'exists' if os.path.isfile(abs_path) else 'missing'}). "
+            "Does the deck exist under exactly this name, and is the target "
+            "path writable?"
+        )
+
+
+def _unique_safe_names(deck_names):
+    """{deck: collision-free file stem}. Different deck names can sanitize to
+    the same stem ('A::B' and 'A B' -> 'A_B'); a numeric suffix keeps the
+    second one from silently overwriting the first (backup = restore path!)."""
+    out, used = {}, set()
+    for deck in deck_names:
+        stem = _safe_name(deck) or "deck"
+        cand, n = stem, 1
+        while cand in used:
+            n += 1
+            cand = f"{stem}_{n}"
+        used.add(cand)
+        out[deck] = cand
+    return out
+
+
 def _backup_decks(deck_names):
     """Exports decks (WITH scheduling) into a timestamped backup folder.
     Restore = push the backup .apkg again (GUIDs -> notes revert).
@@ -170,9 +209,10 @@ def _backup_decks(deck_names):
     outdir = os.path.join(BACKUP_DIR, time.strftime("%Y%m%d-%H%M%S"))
     os.makedirs(outdir, exist_ok=True)
     paths = []
+    safe_names = _unique_safe_names(deck_names)
     for deck in deck_names:
-        path = os.path.join(outdir, _safe_name(deck) + ".apkg")
-        invoke("exportPackage", deck=deck, path=os.path.abspath(path), includeSched=True)
+        path = os.path.join(outdir, safe_names[deck] + ".apkg")
+        _export_package(deck, path)
         print(f"Backup: '{deck}' -> {path}")
         paths.append(path)
     _prune_backups()
@@ -282,7 +322,15 @@ def push(apkg_path, backup=True, prune=False):
                 anki_notes.update(_notes_with_decks(path))
             orphans = _orphans(anki_notes, _package_guids(apkg_path), package_decks)
 
-    invoke("importPackage", path=os.path.abspath(apkg_path))
+    # AnkiConnect returns `false` without an error e.g. when no collection is
+    # loaded (profile picker open) — never report that as success, and never
+    # run the prune deletions after an import that did not land.
+    result = invoke("importPackage", path=os.path.abspath(apkg_path))
+    if result is not True:
+        raise AnkiConnectError(
+            f"Import failed (importPackage returned {result!r}). Is a profile "
+            "open in Anki (not the profile picker), and is the .apkg readable?"
+        )
     print(f"OK: imported {apkg_path} into Anki.")
 
     if prune:
@@ -304,7 +352,7 @@ def export(deck_name, out_path):
     out_dir = os.path.dirname(abs_path)
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    invoke("exportPackage", deck=deck_name, path=abs_path, includeSched=True)
+    _export_package(deck_name, abs_path)
     print(f"OK: exported '{deck_name}' -> {out_path} (with scheduling).")
 
 
@@ -345,7 +393,7 @@ def update_note(nid, fields, backup=True):
     print(f"OK: updated field(s) {', '.join(fields)} of note {nid}.")
 
 
-MIRROR_DIR = os.path.join("decks", "_anki-mirror")
+MIRROR_DIR = os.path.join(_ROOT, "decks", "_anki-mirror")
 
 
 def _safe_name(deck_name):
@@ -354,7 +402,8 @@ def _safe_name(deck_name):
 
 
 def _decode_apkg(apkg_path, outdir):
-    """apkg -> cards.json via apkg_to_cards."""
+    """apkg -> cards.json via apkg_to_cards (media unpacked alongside, so a
+    rebuild from the mirror also works for decks with images)."""
     atc = _apkg_to_cards()
     con, tmp = atc.open_collection(apkg_path)
     try:
@@ -362,6 +411,7 @@ def _decode_apkg(apkg_path, outdir):
     finally:
         con.close()
         os.unlink(tmp)
+    atc.rewrite_media_srcs(by_deck, atc.extract_media(apkg_path, outdir))
     files = atc.write_cards_json(by_deck, outdir)
     return files, warnings
 
@@ -378,11 +428,12 @@ def mirror(deck_names=None):
     os.makedirs(MIRROR_DIR, exist_ok=True)
 
     ok, failed = [], []
+    safe_names = _unique_safe_names(deck_names)
     for deck in deck_names:
-        safe = _safe_name(deck)
+        safe = safe_names[deck]
         apkg_path = os.path.join(MIRROR_DIR, safe + ".apkg")
         try:
-            invoke("exportPackage", deck=deck, path=os.path.abspath(apkg_path), includeSched=True)
+            _export_package(deck, apkg_path)
             files, warnings = _decode_apkg(apkg_path, os.path.join(MIRROR_DIR, safe + "_cards"))
         except (AnkiConnectError, RuntimeError, OSError) as e:
             # e.g. a filtered deck — skip, keep mirroring the rest.
