@@ -13,7 +13,10 @@ RUN apt-get update \
 ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata
 
 # PDF->Markdown (pymupdf4llm pulls in PyMuPDF, which ships the Tesseract binding).
-RUN pip install --no-cache-dir "pymupdf4llm"
+# Pinned: an upstream release can silently change extraction/marker output that
+# the whole pipeline parses. PyMuPDF pinned too — extract.py imports `fitz`
+# directly. Bump both together (they are released in lockstep) after checking.
+RUN pip install --no-cache-dir "pymupdf4llm==1.27.2.3" "PyMuPDF==1.27.2.3"
 
 # The project is mounted to /work at runtime (script changes take effect immediately).
 WORKDIR /work
