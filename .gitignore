@@ -21,6 +21,10 @@ docs/**/*.mp4
 docs/**/*.mkv
 docs/**/*.webm
 
+# Graphify knowledge-graph output (derived, reproducible via `graphify <path>`) —
+# stays local, never committed. See ~/.claude/skills/graphify.
+graphify-out/
+
 # Python
 __pycache__/
 *.py[cod]
