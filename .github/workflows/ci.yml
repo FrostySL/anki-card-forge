@@ -13,8 +13,8 @@ jobs:
     name: tests (stdlib + genanki)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       # genanki lets the build_deck smoke tests run instead of skipping; zstd
@@ -31,7 +31,7 @@ jobs:
     name: shellcheck (shell scripts + commit guard)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # shellcheck is preinstalled on ubuntu-latest runners.
       - name: Lint shell scripts
         run: shellcheck tools/*.sh .githooks/pre-commit
