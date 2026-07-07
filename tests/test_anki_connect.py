@@ -148,7 +148,11 @@ class TestPush(unittest.TestCase):
                         mock.patch.object(ac, "BACKUP_DIR",
                                           os.path.join(d, "_anki-backups")), \
                         mock.patch.object(ac, "_decks_in_apkg",
-                                          lambda p: set(package_decks)):
+                                          lambda p: set(package_decks)), \
+                        mock.patch.object(ac, "_package_guids",
+                                          lambda p: {"g1"}), \
+                        mock.patch.object(ac, "_notes_with_decks",
+                                          lambda p: {}):
                     out = io.StringIO()
                     with redirect_stdout(out):
                         ac.push("in.apkg")
@@ -579,6 +583,136 @@ class TestImportVerification(unittest.TestCase):
             finally:
                 os.chdir(cwd)
         self.assertNotIn("deleteNotes", [p["action"] for p in payloads])
+
+
+class TestListDecks(unittest.TestCase):
+    def test_prints_sorted_names(self):
+        fake, payloads = urlopen_mock({"result": ["B", "A::Sub"], "error": None})
+        with mock.patch.object(ac.urllib.request, "urlopen", fake):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                ac.list_decks()
+        self.assertEqual(payloads[0]["action"], "deckNames")
+        self.assertEqual(out.getvalue().splitlines(), ["A::Sub", "B"])
+
+
+class TestDryRun(unittest.TestCase):
+    def _dry_run(self, prune=False):
+        fake, payloads = urlopen_mock(
+            {"result": ["A"], "error": None},  # deckNames
+            {"result": True, "error": None},   # exportPackage (backup)
+        )
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                open("in.apkg", "wb").close()
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR", os.path.join(d, "b")), \
+                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
+                        mock.patch.object(ac, "_package_guids",
+                                          lambda p: {"g1", "gNew"}), \
+                        mock.patch.object(ac, "_notes_with_decks",
+                                          lambda p: {"g1": (11, "A", "kept"),
+                                                     "gone": (12, "A", "removed")}):
+                    out = io.StringIO()
+                    with redirect_stdout(out):
+                        ac.push("in.apkg", prune=prune, dry_run=True)
+            finally:
+                os.chdir(cwd)
+        return payloads, out.getvalue()
+
+    def test_imports_nothing_and_reports_counts(self):
+        payloads, out = self._dry_run()
+        actions = [p["action"] for p in payloads]
+        self.assertNotIn("importPackage", actions)
+        self.assertIn("DRY RUN", out)
+        self.assertIn("1 new note(s)", out)          # gNew
+        self.assertIn("1 matching existing", out)    # g1
+
+    def test_shows_prune_list_without_deleting(self):
+        payloads, out = self._dry_run(prune=True)
+        actions = [p["action"] for p in payloads]
+        self.assertNotIn("importPackage", actions)
+        self.assertNotIn("deleteNotes", actions)
+        self.assertIn("would delete 1 note(s)", out)
+        self.assertIn("removed", out)
+
+    def test_requires_backup(self):
+        with tempfile.NamedTemporaryFile(suffix=".apkg") as f:
+            with self.assertRaisesRegex(ac.AnkiConnectError, "--no-backup"):
+                ac.push(f.name, backup=False, dry_run=True)
+
+
+class TestImportReport(unittest.TestCase):
+    def test_push_reports_new_and_updated(self):
+        fake, _ = urlopen_mock(
+            {"result": ["A"], "error": None},  # deckNames
+            {"result": True, "error": None},   # exportPackage (backup)
+            {"result": True, "error": None},   # importPackage
+        )
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                open("in.apkg", "wb").close()
+                with mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                        mock.patch.object(ac, "BACKUP_DIR", os.path.join(d, "b")), \
+                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
+                        mock.patch.object(ac, "_package_guids",
+                                          lambda p: {"g1", "gNew"}), \
+                        mock.patch.object(ac, "_notes_with_decks",
+                                          lambda p: {"g1": (11, "A", "kept")}):
+                    out = io.StringIO()
+                    with redirect_stdout(out):
+                        ac.push("in.apkg")
+            finally:
+                os.chdir(cwd)
+        self.assertIn("1 new note(s), 1 matched existing GUIDs", out.getvalue())
+
+
+class TestRestore(unittest.TestCase):
+    def _with_backups(self, stamps):
+        """Context: temp BACKUP_DIR containing the given {stamp: [deck names]}."""
+        d = tempfile.TemporaryDirectory()
+        for stamp, decks in stamps.items():
+            os.makedirs(os.path.join(d.name, stamp))
+            for deck in decks:
+                open(os.path.join(d.name, stamp, deck + ".apkg"), "wb").close()
+        return d
+
+    def test_list_shows_snapshots_and_decks(self):
+        with self._with_backups({"20260101-000000": ["A"],
+                                 "20260102-000000": ["A", "B"]}) as bdir:
+            with mock.patch.object(ac, "BACKUP_DIR", bdir):
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    ac.restore(list_only=True)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(lines, ["20260101-000000: A", "20260102-000000: A, B"])
+
+    def test_restores_newest_by_default_via_push(self):
+        pushed = []
+        with self._with_backups({"20260101-000000": ["Old"],
+                                 "20260102-000000": ["A", "B"]}) as bdir:
+            with mock.patch.object(ac, "BACKUP_DIR", bdir), \
+                    mock.patch.object(ac, "push", lambda p, **kw: pushed.append(p)):
+                with redirect_stdout(io.StringIO()):
+                    ac.restore()
+        self.assertEqual([os.path.basename(p) for p in pushed],
+                         ["A.apkg", "B.apkg"])  # newest snapshot only
+
+    def test_unknown_timestamp_raises_with_available(self):
+        with self._with_backups({"20260101-000000": ["A"]}) as bdir:
+            with mock.patch.object(ac, "BACKUP_DIR", bdir):
+                with self.assertRaisesRegex(ac.AnkiConnectError, "20260101-000000"):
+                    ac.restore("19990101-000000")
+
+    def test_no_backups_raises(self):
+        with tempfile.TemporaryDirectory() as bdir:
+            with mock.patch.object(ac, "BACKUP_DIR", bdir):
+                with self.assertRaisesRegex(ac.AnkiConnectError, "No backups"):
+                    ac.restore()
 
 
 class TestSafeNames(unittest.TestCase):
