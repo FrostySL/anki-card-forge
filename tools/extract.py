@@ -18,6 +18,10 @@ came from OCR -> lower reliability) are marked `<!-- p. N (OCR) -->`, empty page
 `<!-- p. N (empty) -->`. That gives you page numbers for citations and makes OCR
 pages recognizable when quoting (verify those against the original PDF).
 
+Text sources (.md/.markdown/.txt) are mirrored into extracted/ unchanged
+(no page markers), so grounding_check/coverage find them as sibling sources;
+context.md/kontext.md are meta files and are skipped in folder runs.
+
 Output: extracted/<topic>/<name>.md  (mirrored from sources/<topic>/...).
 """
 import argparse
@@ -30,6 +34,10 @@ import pymupdf4llm
 
 DEFAULT_LANG = "eng+deu"
 MIN_CHARS = 20  # fewer alphanumeric chars on the page -> mark as (empty)
+TEXT_EXTS = (".md", ".markdown", ".txt")
+# Meta files, not sources: context.md steers card authoring (see CLAUDE.md)
+# and must not become a grounding source.
+META_NAMES = ("context.md", "kontext.md")
 
 
 def _alnum_len(text):
@@ -107,6 +115,23 @@ def convert(in_path, out_path, lang=DEFAULT_LANG, jobs=0):
     return out_path
 
 
+def convert_text(in_path, out_path):
+    """Mirrors a text/Markdown source into extracted/ unchanged.
+
+    Text sources need no PDF machinery, but WITHOUT the extracted/ mirror the
+    whole quality pipeline goes blind: grounding_check/coverage look up their
+    source as the sibling .md under extracted/<topic>/. No page markers exist,
+    so the page-citation check simply stays off (global check still runs).
+    """
+    with open(in_path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(text if text.endswith("\n") else text + "\n")
+    print(f"OK: {os.path.basename(in_path)} -> {out_path}  (text source, no page markers)")
+    return out_path
+
+
 def _rel_to_cwd(path):
     """Path relative to the cwd, '/'-separated — so './sources/x.pdf' and the
     absolute form are recognized like 'sources/x.pdf'. Paths outside the cwd
@@ -129,11 +154,13 @@ def _default_out(in_path):
     return os.path.join("extracted", base)
 
 
-def _pdfs_in(folder):
+def _sources_in(folder):
+    """PDF and text sources of a topic folder (context.md etc. excluded)."""
     return sorted(
         os.path.join(folder, f)
         for f in os.listdir(folder)
-        if f.lower().endswith(".pdf")
+        if f.lower().endswith((".pdf",) + TEXT_EXTS)
+        and f.lower() not in META_NAMES
     )
 
 
@@ -148,21 +175,27 @@ def main(argv):
     args = ap.parse_args(argv)
 
     if os.path.isdir(args.input):
-        pdfs = _pdfs_in(args.input)
-        if not pdfs:
-            print(f"No PDFs in {args.input}", file=sys.stderr)
+        sources = _sources_in(args.input)
+        if not sources:
+            print(f"No PDF/text sources in {args.input}", file=sys.stderr)
             return 1
         if args.out:
             print("-o/--out is ignored for folder input.", file=sys.stderr)
-        for p in pdfs:
-            convert(p, _default_out(p), args.lang, args.jobs)
+        for p in sources:
+            if p.lower().endswith(".pdf"):
+                convert(p, _default_out(p), args.lang, args.jobs)
+            else:
+                convert_text(p, _default_out(p))
         return 0
 
     if not os.path.isfile(args.input):
         print(f"Input not found: {args.input}", file=sys.stderr)
         return 1
+    if args.input.lower().endswith(TEXT_EXTS):
+        convert_text(args.input, args.out or _default_out(args.input))
+        return 0
     if not args.input.lower().endswith(".pdf"):
-        print(f"Only PDF supported (got: {args.input})", file=sys.stderr)
+        print(f"Only PDF/Markdown/text supported (got: {args.input})", file=sys.stderr)
         return 1
 
     out = args.out or _default_out(args.input)
