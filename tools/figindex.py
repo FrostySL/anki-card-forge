@@ -27,8 +27,18 @@ import re
 import sys
 
 MARKER_RE = re.compile(r"<!--\s*(?:p|S)\.\s*(\d+)([^>]*?)-->")
-CAPTION_RE = re.compile(r"(?:Fig|Figure|Abb|Abbildung)\.?\s*(\d+)\s*:\**\s*([^\n]*)")
+# Figure captions. The number may be sectioned ("3.2", "4.10.1"), and the
+# separator can be a colon, an en/em dash or a hyphen ("Figure 3.2: …",
+# "Abbildung 4 – …") — not just a colon. – = –, — = —.
+CAPTION_RE = re.compile(
+    r"(?:Fig|Figure|Abb|Abbildung)\.?\s*(\d+(?:\.\d+)*)\s*[:–—-]\s*\**\s*([^\n]*)"
+)
 OMITTED_RE = re.compile(r"intentionally omitted")
+
+
+def _num_key(num):
+    """Sort key for a (possibly sectioned) figure number string: '3.10' > '3.2'."""
+    return tuple(int(x) for x in num.split("."))
 
 
 def _clean_caption(raw):
@@ -52,9 +62,11 @@ def _flag(suffix):
 
 
 def scan(md_text):
-    """-> (annotated_text, index). index: sorted list of (num, page, caption)."""
+    """-> (annotated_text, index). index: list of (num, page, caption) sorted by
+    (page, number). Figure numbers are strings ('1', '3.2'); the same number on
+    different pages (chapter-wise numbering) stays as separate entries."""
     markers = list(MARKER_RE.finditer(md_text))
-    index = {}            # num -> (page, caption); longest caption wins
+    index = {}            # (num, page) -> caption
     out = []
     last = 0
     for i, m in enumerate(markers):
@@ -66,17 +78,19 @@ def scan(md_text):
         for cm in CAPTION_RE.finditer(seg):
             if re.search(r"\.{4,}", cm.group(0)):   # list-of-figures entry (dotted leader) -> not a real image
                 continue
-            num, cap = int(cm.group(1)), _clean_caption(cm.group(2))
+            num, cap = cm.group(1), _clean_caption(cm.group(2))
             if num not in figs or len(cap) > len(figs[num]):
                 figs[num] = cap
         k = len(figs) + len(OMITTED_RE.findall(seg))
         out.append(f"<!-- p. {page}{flag}" + (f" · {k} fig." if k else "") + " -->")
         last = m.end()
         for num, cap in figs.items():
-            if num not in index or len(cap) > len(index[num][1]):
-                index[num] = (page, cap)
+            index[(num, page)] = cap     # per-page: same number on two pages -> two entries
     out.append(md_text[last:])
-    return "".join(out), sorted((num, p, c) for num, (p, c) in index.items())
+    return "".join(out), sorted(
+        ((num, page, cap) for (num, page), cap in index.items()),
+        key=lambda t: (t[1], _num_key(t[0])),
+    )
 
 
 def process(md_path):
@@ -103,6 +117,27 @@ def process(md_path):
     return len(idx)
 
 
+def extracted_dirs_for(args):
+    """The extracted/<topic> dirs that mirror the given SOURCE path args (per the
+    sources/<topic>/ convention). Skips flags and flag-values and anything not
+    under sources/. Returns de-duplicated, project-relative dir strings — so
+    extract.sh can index only the topics it just wrote, not the whole tree."""
+    dirs = []
+    for a in args:
+        if a.startswith("-"):
+            continue
+        norm = a.replace(os.sep, "/").rstrip("/")
+        if not norm.startswith("sources/"):
+            continue
+        rel = norm[len("sources/"):]
+        if os.path.splitext(rel)[1]:          # a file -> index its topic dir
+            rel = os.path.dirname(rel)
+        d = os.path.join("extracted", rel) if rel else "extracted"
+        if d not in dirs:
+            dirs.append(d)
+    return dirs
+
+
 def _md_files(path):
     if os.path.isfile(path):
         return [path] if path.endswith(".md") and not path.endswith(".figures.md") else []
@@ -115,11 +150,25 @@ def _md_files(path):
 
 
 def main(argv):
-    if not argv:
+    if argv and argv[0] == "--for-sources":
+        # extract.sh mode: index only the extracted topics that mirror these
+        # source args (argv[1] = project root, rest = the wrapper's arguments),
+        # instead of walking the whole extracted/ tree. Falls back to the full
+        # tree when no topic is derivable (e.g. a source outside sources/).
+        root = argv[1] if len(argv) > 1 else "."
+        rels = extracted_dirs_for(argv[2:])
+        paths = [os.path.join(root, r) for r in rels
+                 if os.path.isdir(os.path.join(root, r))]
+        if not paths:
+            fallback = os.path.join(root, "extracted")
+            paths = [fallback] if os.path.isdir(fallback) else []
+    elif not argv:
         print("Usage: figindex.py <extracted/topic/ | file.md>", file=sys.stderr)
         return 1
+    else:
+        paths = argv
     total = 0
-    for p in argv:
+    for p in paths:
         for md in _md_files(p):
             n = process(md)
             total += n

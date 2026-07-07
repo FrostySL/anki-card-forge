@@ -23,9 +23,11 @@ map_paths "$@"
 docker run --rm --user "$(id -u):$(id -g)" -v "$PROJECT_DIR":/work "$IMAGE" \
   ${MAPPED[@]+"${MAPPED[@]}"}
 
-# Update the figure index (stdlib Python, no Docker) over the generated .md files.
-# Adds extracted/<topic>/<name>.figures.md + per-page markers "· N fig.".
+# Update the figure index (stdlib Python, no Docker) over the .md files we just
+# wrote — scoped to the topics of these inputs, so unrelated topics' markers and
+# mtimes are left untouched. Adds <name>.figures.md + per-page "· N fig." markers.
 if [ -d "$PROJECT_DIR/extracted" ]; then
-  python3 "$PROJECT_DIR/tools/figindex.py" "$PROJECT_DIR/extracted" \
+  python3 "$PROJECT_DIR/tools/figindex.py" --for-sources "$PROJECT_DIR" \
+    ${MAPPED[@]+"${MAPPED[@]}"} \
     || echo "Note: figure index could not be created (figindex.py)." >&2
 fi
