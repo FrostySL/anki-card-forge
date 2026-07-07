@@ -19,7 +19,7 @@ _LONG_ANSWER = 350  # chars: above this, warn "answer may be too long"
 
 # Allowed fields — unknown keys (typos like "explaination") are silently dropped
 # by the build, and the content would be lost. Hence the warnings here.
-_DECK_KEYS = {"deck", "cards"}
+_DECK_KEYS = {"deck", "cards", "description"}
 _COMMON_KEYS = {"type", "tags", "guid", "explanation", "source"}
 _TYPE_KEYS = {
     "basic": {"front", "back", "reverse"},
@@ -56,6 +56,8 @@ def lint(cards_path):
 
     if not data.get("deck"):
         errors.append("  [ERROR] 'deck' is missing or empty.")
+    if "description" in data and not isinstance(data["description"], str):
+        errors.append("  [ERROR] 'description' must be a string (HTML allowed).")
     cards = data.get("cards") or []
     if not cards:
         errors.append("  [ERROR] no 'cards' present.")

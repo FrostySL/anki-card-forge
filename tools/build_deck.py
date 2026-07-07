@@ -436,7 +436,10 @@ def _add_occlusion_notes(deck, card, media):
 def _deck_from_data(data, media):
     """Builds a genanki.Deck from a parsed cards.json (+ counts notes)."""
     deck_name = data["deck"]
-    deck = genanki.Deck(stable_id("deck:" + deck_name), deck_name)
+    # Optional deck-level "description": shows up in Anki's deck overview —
+    # provenance (source, date) for users with many generated decks.
+    deck = genanki.Deck(stable_id("deck:" + deck_name), deck_name,
+                        description=data.get("description", ""))
     note_count = 0
     for i, card in enumerate(data["cards"]):
         ctype = card.get("type", "basic")
