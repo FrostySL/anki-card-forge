@@ -44,13 +44,17 @@ point the tool at it: `ANKICONNECT_URL=http://127.0.0.1:8765` (default).
 
 ```bash
 python3 tools/anki_connect.py ping                          # connectivity check
+python3 tools/anki_connect.py decks                         # list all deck names
 python3 tools/anki_connect.py push <file.apkg>              # import into Anki
+python3 tools/anki_connect.py push <file.apkg> --dry-run    # only show what a push would do
 python3 tools/anki_connect.py push <file.apkg> --prune      # ... and delete removed cards
 python3 tools/anki_connect.py push <file.apkg> --no-backup  # ... without the auto-backup
 python3 tools/anki_connect.py export "<Deck>" <out.apkg>    # export WITH scheduling
 python3 tools/anki_connect.py sync                          # trigger AnkiWeb sync
 python3 tools/anki_connect.py mirror [deck ...]             # snapshot decks locally
 python3 tools/anki_connect.py update-note <nid> --field "Name=<html>"   # edit one note in place
+python3 tools/anki_connect.py restore --list                # list backup snapshots
+python3 tools/anki_connect.py restore [<timestamp>]         # push a snapshot back (default: newest)
 ```
 
 ### `ping`
@@ -58,6 +62,12 @@ python3 tools/anki_connect.py update-note <nid> --field "Name=<html>"   # edit o
 Checks that Anki is running, the add-on is installed and permission is granted.
 Every other command performs the same reachability check implicitly and fails
 with the same guidance, so `ping` is mainly for a quick sanity check.
+
+### `decks`
+
+Prints every deck name in the collection, one per line. `export`, `mirror`
+and the rework workflow need deck names **exactly** as Anki knows them
+(including the `::` hierarchy) — this saves opening Anki just to look them up.
 
 ### `push <file.apkg>`
 
@@ -70,6 +80,16 @@ Imports a built package into the open collection — the automated version of
   your cards untouched.
 - **Before the import, affected decks are backed up automatically** (see
   [Backups](#backups--restore)). Disable only deliberately with `--no-backup`.
+
+After the import, push reports what it did — `N new note(s), M matched
+existing GUIDs` (diffed against the fresh backup). Note-type conflicts are the
+one silent case: Anki skips imported notes whose GUID matches but whose note
+type differs — those need [`update-note`](#update-note-nid---field-namehtml).
+
+`--dry-run` shows exactly that report (plus the `--prune` deletion list, if
+given) **without importing anything** — the backup is still written, since it
+doubles as the diff baseline. Use it to answer "what would this push change?"
+before touching the collection.
 
 `--prune` additionally deletes notes that were removed from the deck — see
 [Removing cards](#removing-cards-push---prune).
@@ -162,14 +182,19 @@ decks/_anki-backups/<YYYYMMDD-HHMMSS>/<Deck>.apkg     # with scheduling
 - Gitignored — backups never leave your machine.
 - The **10 newest** timestamp folders are kept, older ones are pruned
   automatically.
-- **Restore = push the backup:**
+- **Restore = push the backup.** The `restore` subcommand does that for you:
 
   ```bash
+  python3 tools/anki_connect.py restore --list        # what snapshots exist?
+  python3 tools/anki_connect.py restore               # push the NEWEST snapshot back
+  python3 tools/anki_connect.py restore 20260707-100305   # or a specific one
+  # equivalent by hand:
   python3 tools/anki_connect.py push decks/_anki-backups/<timestamp>/<Deck>.apkg
   ```
 
   Same-GUID notes revert to the backed-up content; notes deleted by a prune
-  are re-created with their scheduling.
+  are re-created with their scheduling. The restore push itself takes a fresh
+  backup first — even a restore is undoable.
 
 Independent of this repo, Anki keeps its own automatic collection backups
 (*File → Restore from backup*; on Linux under

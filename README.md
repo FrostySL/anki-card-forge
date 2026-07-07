@@ -199,11 +199,14 @@ your machine:
 
 ```bash
 python3 tools/anki_connect.py ping                    # is Anki + add-on reachable?
+python3 tools/anki_connect.py decks                   # list all deck names
 python3 tools/anki_connect.py push decks/<topic>/<name>.apkg   # import a built deck
+python3 tools/anki_connect.py push <name>.apkg --dry-run       # what WOULD change?
 python3 tools/anki_connect.py export "<Deck>" out.apkg # export WITH scheduling
 python3 tools/anki_connect.py sync                    # trigger AnkiWeb sync
 python3 tools/anki_connect.py mirror                  # local backup of all decks
 python3 tools/anki_connect.py update-note <nid> --field "Back=..."   # edit one note in place
+python3 tools/anki_connect.py restore [--list]        # push a backup snapshot back
 ```
 
 `./tools/finish.sh … --push [--prune] [--sync]` chains it into the build:
@@ -230,6 +233,8 @@ python3 tools/anki_connect.py export "<Deck>" export.apkg
 python3 tools/apkg_to_cards.py export.apkg -o decks/<topic>/<name>_rebuild
 # 3. Edit the cards.json, then rebuild — re-import UPDATES instead of duplicating:
 ./tools/build.sh decks/<topic>/<name>_rebuild/*.cards.json "restructured.apkg"
+# 4. Verify before importing: exactly the intended changes, no cloze breakage?
+python3 tools/deck_diff.py export.apkg restructured.apkg --strict
 ```
 
 Details (cloze pitfalls, CSS updates): [CLAUDE.md](CLAUDE.md).
@@ -249,8 +254,9 @@ Details (cloze pitfalls, CSS updates): [CLAUDE.md](CLAUDE.md).
 | `tools/preview.sh` | cards → PNG previews, light + night mode (headless Chromium) |
 | `tools/validate.sh` | check the `.apkg` in the real Anki engine (import + render) |
 | `tools/finish.sh` | shortcut: lint + grounding (+ coverage) + build + validate in one; `--push [--sync]` sends the result into Anki |
-| `tools/apkg_to_cards.py` | `.apkg` → `cards.json` back, GUIDs preserved (edit learned decks without losing progress) |
-| `tools/anki_connect.py` | optional: drive a running Anki via the AnkiConnect add-on — `push`/`export`/`sync`/`mirror`, local HTTP, no credentials ([docs](ANKICONNECT.md)) |
+| `tools/apkg_to_cards.py` | `.apkg` → `cards.json` back, GUIDs **and media** preserved (edit learned decks without losing progress) |
+| `tools/deck_diff.py` | diff two deck versions by note GUID: added/removed/changed notes, cloze-safety warnings — verify a rework **before** pushing it |
+| `tools/anki_connect.py` | optional: drive a running Anki via the AnkiConnect add-on — `push` (`--dry-run`)/`export`/`sync`/`mirror`/`decks`/`restore`, local HTTP, no credentials ([docs](ANKICONNECT.md)) |
 | `tools/test.sh` | test suite of the logic tools (stdlib `unittest`, no Docker/pip) |
 
 ## Folder structure
