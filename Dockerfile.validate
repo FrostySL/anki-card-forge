@@ -4,7 +4,10 @@ FROM python:3.12-slim
 
 ENV HOME=/tmp
 
-RUN pip install --no-cache-dir anki
+# Pinned: this is the real Anki engine that validates every .apkg — an upstream
+# release could silently change import/render behavior. Bump deliberately, then
+# re-run validate.sh on a known-good deck.
+RUN pip install --no-cache-dir "anki==26.5"
 
 WORKDIR /work
 ENTRYPOINT ["python", "/work/tools/validate.py"]
