@@ -88,9 +88,15 @@ Nothing else — all Python dependencies live inside the Docker images.
 ```bash
 git clone https://github.com/FrostySL/anki-card-forge
 cd anki-card-forge
-docker build -t anki-cards .             # slim builder image (one-off)
-git config core.hooksPath .githooks      # commit guard (see below, one-off)
+./tools/setup.sh          # checks Docker/Python, enables the commit guard,
+                          # builds the image, proves it on the example deck
 ```
+
+`setup.sh` is the one-command health check ("doctor"): it does the two
+easy-to-forget one-offs (commit guard, builder image) and builds the bundled
+example deck end-to-end, so the first five minutes finish with a visible
+success. Prefer to do it by hand? `docker build -t anki-cards .` and
+`git config core.hooksPath .githooks` are the only required steps.
 
 1. Put a source into `sources/<topic>/` (PDF, text, Markdown …) — one subfolder
    per topic, e.g. `sources/Biology/`.
@@ -259,6 +265,7 @@ Details (cloze pitfalls, CSS updates): [CLAUDE.md](CLAUDE.md).
 | `tools/apkg_to_cards.py` | `.apkg` → `cards.json` back, GUIDs **and media** preserved (edit learned decks without losing progress) |
 | `tools/deck_diff.py` | diff two deck versions by note GUID: added/removed/changed notes, cloze-safety warnings — verify a rework **before** pushing it |
 | `tools/anki_connect.py` | optional: drive a running Anki via the AnkiConnect add-on — `push` (`--dry-run`)/`export`/`sync`/`mirror`/`decks`/`restore`, local HTTP, no credentials ([docs](ANKICONNECT.md)) |
+| `tools/setup.sh` | one-command setup + health check for a fresh clone (Docker/Python, commit guard, builder image, example-deck smoke test) |
 | `tools/test.sh` | test suite of the logic tools (stdlib `unittest`, no Docker/pip) |
 
 ## Folder structure
