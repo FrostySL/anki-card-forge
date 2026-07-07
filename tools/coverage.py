@@ -3,6 +3,8 @@
 
     python3 tools/coverage.py decks/SWT/                 # whole topic folder
     python3 tools/coverage.py decks/SWT/04_UML.cards.json decks/SWT/03_ANA.cards.json
+    python3 tools/coverage.py decks/T/new.cards.json --against decks/_anki-mirror/
+                                                     # ^ dedupe vs the live collection
 
 Complements lint_cards.py (which only checks ONE file for *exact* duplicates) with:
   1. **Near-duplicates** across file boundaries (token Jaccard of the questions) —
@@ -113,7 +115,25 @@ def _fmt_pages(pages):
     return ", ".join(out)
 
 
-def run(paths, threshold=0.8, strict=False):
+def _corpus_entries(against, exclude_files):
+    """All cards under `against` (recursive — matches the mirror layout
+    decks/_anki-mirror/<deck>_cards/*.cards.json) as duplicate-check corpus.
+    Files that are also direct inputs are skipped."""
+    skip = {os.path.realpath(f) for f in exclude_files}
+    entries = []
+    for cf in sorted(glob.glob(os.path.join(against, "**", "*.cards.json"),
+                               recursive=True)):
+        if os.path.realpath(cf) in skip:
+            continue
+        with open(cf, encoding="utf-8") as f:
+            cards = (json.load(f).get("cards") or [])
+        for i, c in enumerate(cards):
+            entries.append((cf, i, _front_text(c).strip()[:70],
+                            _tokens(_front_text(c))))
+    return entries
+
+
+def run(paths, threshold=0.8, strict=False, against=None):
     files = _cards_files(paths)
     if not files:
         print("No cards.json found.", file=sys.stderr)
@@ -150,19 +170,37 @@ def run(paths, threshold=0.8, strict=False):
 
     print(f"\n== Near-duplicates (Jaccard ≥ {threshold:.0%}) ==")
     dups = 0
+
+    def _report(a, b, j):
+        fa, ia, ta, _ = a
+        fb, ib, tb, _ = b
+        tag = "EXACT" if ta.lower() == tb.lower() else f"{j:.0%}"
+        print(f"  [{tag}] {os.path.basename(fa)}#{ia} ~ {os.path.basename(fb)}#{ib}")
+        print(f"         A: {ta!r}")
+        print(f"         B: {tb!r}")
+
     for a in range(len(entries)):
-        fa, ia, ta, toka = entries[a]
         for b in range(a + 1, len(entries)):
-            fb, ib, tb, tokb = entries[b]
-            j = _jaccard(toka, tokb)
+            j = _jaccard(entries[a][3], entries[b][3])
             if j >= threshold:
                 dups += 1
-                tag = "EXACT" if ta.lower() == tb.lower() else f"{j:.0%}"
-                print(f"  [{tag}] {os.path.basename(fa)}#{ia} ~ {os.path.basename(fb)}#{ib}")
-                print(f"         A: {ta!r}")
-                print(f"         B: {tb!r}")
+                _report(entries[a], entries[b], j)
     if not dups:
         print("  none found ✓")
+
+    corpus = _corpus_entries(against, files) if against else []
+    if against:
+        print(f"\n== Against corpus: {against} ({len(corpus)} cards) ==")
+        corpus_dups = 0
+        for a in range(len(entries)):
+            for c in range(len(corpus)):
+                j = _jaccard(entries[a][3], corpus[c][3])
+                if j >= threshold:
+                    corpus_dups += 1
+                    _report(entries[a], corpus[c], j)
+        if not corpus_dups:
+            print("  none found ✓")
+        dups += corpus_dups
 
     print(f"\n-> {len(files)} file(s), {len(entries)} cards, {dups} near-duplicate(s).")
     return 1 if (strict and dups) else 0
@@ -174,8 +212,13 @@ def main(argv):
     ap.add_argument("--threshold", type=float, default=0.8,
                     help="Jaccard threshold for near-duplicates (default 0.8)")
     ap.add_argument("--strict", action="store_true", help="exit 1 on duplicates")
+    ap.add_argument("--against", metavar="DIR",
+                    help="additionally check the inputs against every "
+                         "*.cards.json under DIR (recursive) — e.g. the live-"
+                         "collection mirror decks/_anki-mirror/; corpus cards "
+                         "are only compared against, not linted themselves")
     args = ap.parse_args(argv)
-    return run(args.paths, args.threshold, args.strict)
+    return run(args.paths, args.threshold, args.strict, args.against)
 
 
 if __name__ == "__main__":

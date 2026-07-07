@@ -10,11 +10,13 @@ Requires:
 
 Usage:
     python3 tools/anki_connect.py ping
-    python3 tools/anki_connect.py push <file.apkg> [--no-backup] [--prune]
+    python3 tools/anki_connect.py decks
+    python3 tools/anki_connect.py push <file.apkg> [--no-backup] [--prune] [--dry-run]
     python3 tools/anki_connect.py export "<Deck::Name>" <out.apkg>
     python3 tools/anki_connect.py sync
     python3 tools/anki_connect.py mirror [deck ...]
     python3 tools/anki_connect.py update-note <nid> --field "Name=<html>" [...]
+    python3 tools/anki_connect.py restore [--list] [<timestamp>]
 
 Endpoint overridable via ANKICONNECT_URL (default http://127.0.0.1:8765).
 Pure local HTTP — no credentials, no Docker; the .apkg build itself is
@@ -32,6 +34,7 @@ Safeguards:
     the package (symptom of a rebuild that lost the GUIDs).
 """
 import argparse
+import glob
 import json
 import os
 import re
@@ -286,7 +289,7 @@ def _orphans(anki_notes, package_guids, package_decks):
     return orphans
 
 
-def push(apkg_path, backup=True, prune=False):
+def push(apkg_path, backup=True, prune=False, dry_run=False):
     """Imports a built .apkg into Anki's collection (importPackage).
 
     Safety net: same-GUID notes get their fields OVERWRITTEN by the import, so
@@ -298,6 +301,11 @@ def push(apkg_path, backup=True, prune=False):
     of a reworked deck would linger in Anki forever. Prune deletes exactly
     those leftovers (GUID diff against the fresh backup), computed BEFORE the
     import so a refusal aborts the push untouched. Requires the backup.
+
+    dry_run=True (--dry-run): show what the push WOULD do — new/updated note
+    counts (GUID diff against the fresh backup) and the exact prune list —
+    then stop before importPackage. The backup is still written (it doubles
+    as the diff baseline), the collection is not touched.
     """
     if not os.path.isfile(apkg_path):
         raise FileNotFoundError(apkg_path)
@@ -306,8 +314,14 @@ def push(apkg_path, backup=True, prune=False):
             "--prune needs the automatic backup as its diff baseline (and as "
             "the restore path) — do not combine it with --no-backup."
         )
+    if dry_run and not backup:
+        raise AnkiConnectError(
+            "--dry-run needs the backup export as its diff baseline — do not "
+            "combine it with --no-backup."
+        )
     backup_paths = []
     orphans = []
+    new = updated = None
     if backup:
         existing = set(invoke("deckNames"))
         package_decks = _decks_in_apkg(apkg_path)
@@ -316,11 +330,28 @@ def push(apkg_path, backup=True, prune=False):
             backup_paths = _backup_decks(affected)
         else:
             print("Backup: no existing deck affected, nothing to save.")
+        # GUID diff against the just-written backup: what does this import do?
+        anki_notes = {}
+        for path in backup_paths:
+            anki_notes.update(_notes_with_decks(path))
+        pkg_guids = _package_guids(apkg_path)
+        new = len(pkg_guids - set(anki_notes))
+        updated = len(pkg_guids & set(anki_notes))
         if prune and backup_paths:
-            anki_notes = {}
-            for path in backup_paths:
-                anki_notes.update(_notes_with_decks(path))
-            orphans = _orphans(anki_notes, _package_guids(apkg_path), package_decks)
+            orphans = _orphans(anki_notes, pkg_guids, package_decks)
+
+    if dry_run:
+        print(f"DRY RUN: would import {apkg_path}: {new} new note(s), "
+              f"{updated} matching existing GUIDs (fields would be overwritten).")
+        if prune:
+            if orphans:
+                print(f"DRY RUN: --prune would delete {len(orphans)} note(s):")
+                for _nid, deck, front in orphans:
+                    print(f"  - [{deck}] {front}")
+            else:
+                print("DRY RUN: --prune would delete nothing.")
+        print("Nothing was imported.")
+        return
 
     # AnkiConnect returns `false` without an error e.g. when no collection is
     # loaded (profile picker open) — never report that as success, and never
@@ -332,6 +363,10 @@ def push(apkg_path, backup=True, prune=False):
             "open in Anki (not the profile picker), and is the .apkg readable?"
         )
     print(f"OK: imported {apkg_path} into Anki.")
+    if new is not None:
+        print(f"Import: {new} new note(s), {updated} matched existing GUIDs "
+              "(fields updated — note-type conflicts are skipped by Anki, "
+              "see update-note).")
 
     if prune:
         if not orphans:
@@ -360,6 +395,55 @@ def sync():
     """Triggers the same AnkiWeb sync as the GUI's sync button."""
     invoke("sync")
     print("OK: sync triggered.")
+
+
+def list_decks():
+    """Prints all deck names — export/mirror need them EXACTLY (incl. '::')."""
+    for name in sorted(invoke("deckNames")):
+        print(name)
+
+
+def _backup_stamps():
+    if not os.path.isdir(BACKUP_DIR):
+        return []
+    return sorted(d for d in os.listdir(BACKUP_DIR)
+                  if os.path.isdir(os.path.join(BACKUP_DIR, d)))
+
+
+def restore(timestamp=None, list_only=False):
+    """Pushes the .apkg files of a backup snapshot back into Anki.
+
+    Restore has always been documented as "push the backup .apkg" — this
+    makes the safety net usable with one command instead of hunting for the
+    right timestamp folder. Default: the NEWEST snapshot; the restore push
+    itself takes a fresh backup first, so even a restore is undoable.
+    """
+    stamps = _backup_stamps()
+    if list_only:
+        if not stamps:
+            print(f"No backups in {BACKUP_DIR}/.")
+            return
+        for stamp in stamps:
+            decks = sorted(f[:-len(".apkg")] for f in
+                           os.listdir(os.path.join(BACKUP_DIR, stamp))
+                           if f.endswith(".apkg"))
+            print(f"{stamp}: {', '.join(decks) if decks else '(empty)'}")
+        return
+    if not stamps:
+        raise AnkiConnectError(
+            f"No backups in {BACKUP_DIR}/ — push writes one automatically.")
+    stamp = timestamp or stamps[-1]
+    snapdir = os.path.join(BACKUP_DIR, stamp)
+    if not os.path.isdir(snapdir):
+        raise AnkiConnectError(
+            f"Backup '{stamp}' not found. Available: {', '.join(stamps)}")
+    apkgs = sorted(glob.glob(os.path.join(snapdir, "*.apkg")))
+    if not apkgs:
+        raise AnkiConnectError(f"Backup '{stamp}' contains no .apkg files.")
+    print(f"Restoring backup {stamp} ({len(apkgs)} deck(s)):")
+    for path in apkgs:
+        push(path)
+    print(f"OK: restored {len(apkgs)} deck(s) from {snapdir}/.")
 
 
 def update_note(nid, fields, backup=True):
@@ -465,6 +549,7 @@ def main(argv):
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("ping", help="check that Anki + AnkiConnect are reachable")
+    sub.add_parser("decks", help="list all deck names (exact, incl. '::')")
 
     p_push = sub.add_parser("push", help="import a built .apkg into Anki")
     p_push.add_argument("apkg", help="path to the .apkg to import")
@@ -473,6 +558,9 @@ def main(argv):
     p_push.add_argument("--prune", action="store_true",
                         help="after the import, delete notes that were removed "
                              "from the package (GUID diff; needs the backup)")
+    p_push.add_argument("--dry-run", action="store_true",
+                        help="only show what the push would do (new/updated "
+                             "counts, prune list) — import nothing")
 
     p_export = sub.add_parser("export", help="export a deck to .apkg (with scheduling)")
     p_export.add_argument("deck", help="Anki deck name, e.g. 'Biology::Respiration'")
@@ -495,12 +583,23 @@ def main(argv):
     p_update.add_argument("--no-backup", action="store_true",
                           help="skip the automatic backup of the containing deck")
 
+    p_restore = sub.add_parser(
+        "restore", help="push a decks/_anki-backups/ snapshot back into Anki"
+    )
+    p_restore.add_argument("timestamp", nargs="?",
+                           help="backup folder name (default: the newest)")
+    p_restore.add_argument("--list", action="store_true", dest="list_only",
+                           help="only list the available backups")
+
     args = ap.parse_args(argv)
     try:
         if args.cmd == "ping":
             ping()
+        elif args.cmd == "decks":
+            list_decks()
         elif args.cmd == "push":
-            push(args.apkg, backup=not args.no_backup, prune=args.prune)
+            push(args.apkg, backup=not args.no_backup, prune=args.prune,
+                 dry_run=args.dry_run)
         elif args.cmd == "export":
             export(args.deck, args.out)
         elif args.cmd == "sync":
@@ -515,6 +614,8 @@ def main(argv):
                     raise AnkiConnectError(f"--field expects NAME=HTML, got: {spec!r}")
                 fields[name] = value
             update_note(args.nid, fields, backup=not args.no_backup)
+        elif args.cmd == "restore":
+            restore(args.timestamp, list_only=args.list_only)
     except AnkiConnectError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1

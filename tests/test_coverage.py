@@ -127,5 +127,57 @@ class TestRun(unittest.TestCase):
                 os.chdir(cwd)
 
 
+class TestAgainstCorpus(unittest.TestCase):
+    def test_duplicate_against_mirror_found(self):
+        # New deck vs. the live-collection mirror (nested _cards/ layout):
+        # the duplicate lives ONLY in the corpus, not among the inputs.
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                Path("decks/T").mkdir(parents=True)
+                mirror = Path("decks/_anki-mirror/Old_cards")
+                mirror.mkdir(parents=True)
+                Path("decks/T/new.cards.json").write_text(json.dumps(
+                    {"deck": "T", "cards": [
+                        {"type": "basic", "front": "What exactly is a software metric",
+                         "back": "x"}]}), encoding="utf-8")
+                (mirror / "Old.cards.json").write_text(json.dumps(
+                    {"deck": "Old", "cards": [
+                        {"type": "basic", "front": "What exactly is a software metric",
+                         "back": "y"}]}), encoding="utf-8")
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = cov.run(["decks/T"], against="decks/_anki-mirror")
+                out = buf.getvalue()
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(rc, 0)
+        self.assertIn("Against corpus", out)
+        self.assertIn("EXACT", out)
+        self.assertIn("Old.cards.json", out)
+
+    def test_input_files_not_compared_against_themselves(self):
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                Path("decks/T").mkdir(parents=True)
+                Path("decks/T/a.cards.json").write_text(json.dumps(
+                    {"deck": "T", "cards": [
+                        {"type": "basic", "front": "Unique question alpha",
+                         "back": "x"}]}), encoding="utf-8")
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    # corpus dir == input dir: the file must be excluded
+                    rc = cov.run(["decks/T"], against="decks/T")
+                out = buf.getvalue()
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(rc, 0)
+        self.assertIn("(0 cards)", out)   # nothing left in the corpus
+        self.assertNotIn("EXACT", out)
+
+
 if __name__ == "__main__":
     unittest.main()
