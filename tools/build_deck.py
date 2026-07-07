@@ -441,6 +441,13 @@ def _deck_from_data(data, media):
     for i, card in enumerate(data["cards"]):
         ctype = card.get("type", "basic")
         tags = card.get("tags", [])
+        # genanki iterates tags: a bare string "bio" would silently become the
+        # three tags b/i/o. Reject instead.
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            raise ValueError(
+                f"{deck_name}, card {i}: 'tags' must be a list of strings, "
+                f"got {tags!r}."
+            )
         collect_field_images(card, media)
         more = _more_html(card)
         # Optional stable GUID: allows a rebuild that UPDATES a note already
@@ -520,6 +527,18 @@ def build(inputs, out_path: str | None = None) -> str:
         missing = [p for p in media if not os.path.exists(p)]
         if missing:
             raise FileNotFoundError("Image(s) not found: " + ", ".join(missing))
+        # Anki media is flat (basenames only): two DIFFERENT files with the
+        # same name would silently overwrite each other on import and one card
+        # would show the wrong image.
+        by_base = {}
+        for p in sorted(media):
+            b = os.path.basename(p)
+            if b in by_base and not os.path.samefile(p, by_base[b]):
+                raise ValueError(
+                    f"Media name clash: '{by_base[b]}' and '{p}' would both be "
+                    f"stored as '{b}' — rename one of the files."
+                )
+            by_base[b] = p
         package.media_files = sorted(media)
 
     package.write_to_file(out_path)
@@ -535,8 +554,14 @@ def build(inputs, out_path: str | None = None) -> str:
 if __name__ == "__main__":
     # Positional arguments: any number of *.json (inputs) + optionally one *.apkg (output)
     args = sys.argv[1:]
-    inputs = [a for a in args if a.endswith(".json")]
-    outs = [a for a in args if a.endswith(".apkg")]
+    inputs = [a for a in args if a.lower().endswith(".json")]
+    outs = [a for a in args if a.lower().endswith(".apkg")]
+    unknown = [a for a in args if a not in inputs and a not in outs]
+    if unknown:
+        # A typo'd input (x.cards.jsn) must not silently vanish from the build.
+        print("Unknown argument(s): " + ", ".join(unknown)
+              + "  (expected *.json inputs and at most one *.apkg output)", file=sys.stderr)
+        sys.exit(1)
     if not inputs or len(outs) > 1:
         print(__doc__)
         sys.exit(1)

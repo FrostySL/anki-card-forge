@@ -71,6 +71,14 @@ class TestAnswerText(unittest.TestCase):
         self.assertIn("Aorta", t)
         self.assertIn("Valve", t)
 
+    def test_html_inside_cloze_is_stripped(self):
+        # {{c1::<code>2 ATP</code>}}: the tag name must not become a "missing
+        # content word" (false hallucination warning).
+        terms = g._terms(g._answer_text(
+            {"type": "cloze", "text": "yields {{c1::<code>2 ATP</code>}}"}))
+        self.assertIn("atp", terms)
+        self.assertNotIn("code", terms)
+
 
 def _run_check(cards, source_text):
     with tempfile.TemporaryDirectory() as d:
@@ -107,6 +115,28 @@ class TestCheckRegression(unittest.TestCase):
             "<!-- p. 1 -->\n\nThe glycolysis runs in the cytoplasm.\n",
         )
         self.assertEqual(rc, 0)
+
+    def test_source_folder_ignores_figures_md_and_keeps_page_check(self):
+        # x.md + x.figures.md in a --source folder must still count as ONE
+        # source, so the page-accurate citation check stays active.
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "src"
+            src.mkdir()
+            (src / "x.md").write_text(
+                "<!-- p. 1 -->\n\nThe glycolysis runs in the cytoplasm.\n",
+                encoding="utf-8")
+            (src / "x.figures.md").write_text("Fig. 1 — p. 1: chart\n",
+                                              encoding="utf-8")
+            cf = Path(d) / "x.cards.json"
+            cf.write_text(json.dumps({"deck": "T", "cards": [
+                {"type": "basic", "front": "Where?", "back": "In the cytoplasm.",
+                 "source": "p. 99"}]}), encoding="utf-8")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                g.check(str(cf), source=str(src))
+            out = buf.getvalue()
+        self.assertIn("does not exist", out)      # page check ran
+        self.assertNotIn("x.figures.md", out)     # not treated as a source
 
     def test_legacy_german_markers_still_work(self):
         # Old extracts use "<!-- S. N -->" markers and "S. N" citations.

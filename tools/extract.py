@@ -57,6 +57,9 @@ def convert(in_path, out_path, lang=DEFAULT_LANG, jobs=0):
     doc = fitz.open(in_path)
     npages = doc.page_count
     doc.close()
+    if npages == 0:
+        print(f"WARN: {os.path.basename(in_path)} has 0 pages – skipped.", file=sys.stderr)
+        return None
 
     jobs = jobs or (os.cpu_count() or 1)
     jobs = max(1, min(jobs, npages))
@@ -104,9 +107,20 @@ def convert(in_path, out_path, lang=DEFAULT_LANG, jobs=0):
     return out_path
 
 
+def _rel_to_cwd(path):
+    """Path relative to the cwd, '/'-separated — so './sources/x.pdf' and the
+    absolute form are recognized like 'sources/x.pdf'. Paths outside the cwd
+    come back with '../' and simply don't match the sources/ prefix."""
+    try:
+        rel = os.path.relpath(os.path.abspath(path))
+    except ValueError:  # Windows: other drive -> no relative form
+        rel = path
+    return rel.replace(os.sep, "/")
+
+
 def _default_out(in_path):
     """sources/<topic>/<name>.pdf -> extracted/<topic>/<name>.md"""
-    norm = in_path.replace(os.sep, "/")
+    norm = _rel_to_cwd(in_path)
     base = os.path.splitext(os.path.basename(in_path))[0] + ".md"
     if norm.startswith("sources/"):
         rel = norm[len("sources/"):]          # <topic>/<name>.pdf

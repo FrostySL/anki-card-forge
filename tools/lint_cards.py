@@ -39,6 +39,18 @@ def lint(cards_path):
     def warn(i, msg):
         warnings.append(f"  [warn]  card {i}: {msg}")
 
+    def str_field(card, i, key):
+        """String value of card[key] ('' if absent). A non-string value becomes
+        an [ERROR] instead of an AttributeError traceback further down —
+        exactly the broken JSON this linter exists to catch."""
+        val = card.get(key)
+        if val is None:
+            return ""
+        if not isinstance(val, str):
+            err(i, f"'{key}' must be a string, got {type(val).__name__}.")
+            return ""
+        return val
+
     with open(cards_path, encoding="utf-8") as f:
         data = json.load(f)
 
@@ -52,10 +64,19 @@ def lint(cards_path):
 
     seen_fronts = {}
     for i, card in enumerate(cards):
+        if not isinstance(card, dict):
+            err(i, f"card must be a JSON object, got {type(card).__name__}.")
+            continue
+        tags = card.get("tags")
+        if tags is not None and (
+                not isinstance(tags, list)
+                or not all(isinstance(t, str) for t in tags)):
+            err(i, "'tags' must be a list of strings — a bare string would "
+                   "end up as single-character tags in Anki.")
         ctype = card.get("type", "basic")
         if ctype in ("basic", "typein"):
-            front = (card.get("front") or "").strip()
-            back = (card.get("back") or "").strip()
+            front = str_field(card, i, "front").strip()
+            back = str_field(card, i, "back").strip()
             if not front:
                 err(i, f"{ctype} without 'front'.")
             if not back:
@@ -65,11 +86,18 @@ def lint(cards_path):
             if len(back) > _LONG_ANSWER:
                 warn(i, f"answer very long ({len(back)} chars) – consider splitting.")
         elif ctype == "cloze":
-            text = (card.get("text") or "").strip()
+            text = str_field(card, i, "text").strip()
             if not text:
                 err(i, "cloze without 'text'.")
-            elif not _CLOZE_RE.search(text):
-                err(i, "cloze 'text' contains no deletion {{c1::...}}.")
+            else:
+                nums = {int(m.group(1)) for m in _CLOZE_RE.finditer(text)}
+                if not nums:
+                    err(i, "cloze 'text' contains no deletion {{c1::...}}.")
+                elif 0 in nums:
+                    # genanki/Anki build NO card for c0 — the note would exist
+                    # without a single card and slip through validate unseen.
+                    err(i, "cloze uses {{c0::...}} — numbering starts at c1; "
+                           "no card would be generated for c0.")
         elif ctype == "occlusion":
             img = card.get("image")
             if not img:
@@ -80,6 +108,9 @@ def lint(cards_path):
             if not regions:
                 err(i, "occlusion without 'regions'.")
             for n, r in enumerate(regions):
+                if not isinstance(r, dict):
+                    err(i, f"region {n}: must be an object with x/y/w/h/label.")
+                    continue
                 for key in ("x", "y", "w", "h"):
                     v = r.get(key)
                     if not isinstance(v, (int, float)):

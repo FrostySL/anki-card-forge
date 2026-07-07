@@ -57,6 +57,37 @@ class TestSiblingMd(unittest.TestCase):
                 os.chdir(cwd)
 
 
+class TestBogusPageCitations(unittest.TestCase):
+    def test_non_existent_cited_pages_warned_not_counted(self):
+        # A card citing p. 99 of a 2-page source must not inflate coverage —
+        # it gets its own warning line instead.
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            os.chdir(d)
+            try:
+                Path("decks/T").mkdir(parents=True)
+                Path("extracted/T").mkdir(parents=True)
+                Path("decks/T/a.cards.json").write_text(json.dumps({
+                    "deck": "T", "cards": [
+                        {"type": "basic", "front": "Question alpha beta",
+                         "back": "x", "source": "p. 1"},
+                        {"type": "basic", "front": "Question gamma delta",
+                         "back": "y", "source": "p. 99"},
+                    ]}), encoding="utf-8")
+                Path("extracted/T/a.md").write_text(
+                    "<!-- p. 1 -->\na\n\n<!-- p. 2 -->\nb\n", encoding="utf-8")
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = cov.run(["decks/T"])
+                out = buf.getvalue()
+            finally:
+                os.chdir(cwd)
+        self.assertEqual(rc, 0)
+        self.assertIn("1/2 covered", out)          # p. 99 not counted
+        self.assertIn("non-existent", out)
+        self.assertIn("p. 99", out)
+
+
 class TestRun(unittest.TestCase):
     def test_exact_duplicate_across_files(self):
         cwd = os.getcwd()

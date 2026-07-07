@@ -83,7 +83,9 @@ if [ "$PUSH" -eq 1 ]; then
   echo "== Push into Anki (AnkiConnect) =="
   PUSH_ARGS=()
   [ "$PRUNE" -eq 1 ] && PUSH_ARGS+=(--prune)
-  python3 "$DIR/anki_connect.py" push "${PUSH_ARGS[@]}" "$OUT"
+  # ${arr[@]+...}: expanding an EMPTY array under `set -u` dies on bash < 4.4
+  # (macOS ships 3.2) — this guard form is portable.
+  python3 "$DIR/anki_connect.py" push ${PUSH_ARGS[@]+"${PUSH_ARGS[@]}"} "$OUT"
   if [ "$SYNC" -eq 1 ]; then
     python3 "$DIR/anki_connect.py" sync
   fi
