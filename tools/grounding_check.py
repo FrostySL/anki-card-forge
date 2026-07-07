@@ -70,10 +70,13 @@ def _strip(text):
 
 def _answer_text(card):
     ctype = card.get("type", "basic")
+    # _strip everywhere: HTML inside a cloze deletion ({{c1::<code>x</code>}})
+    # or a label would otherwise turn tag names into "missing content words"
+    # and produce false hallucination warnings.
     if ctype == "cloze":
-        return " ".join(_CLOZE_RE.findall(card.get("text", "")))
+        return _strip(" ".join(_CLOZE_RE.findall(card.get("text", ""))))
     if ctype == "occlusion":
-        return " ".join((r.get("label") or "") for r in card.get("regions") or [])
+        return _strip(" ".join((r.get("label") or "") for r in card.get("regions") or []))
     return _strip(card.get("back", ""))
 
 
@@ -95,8 +98,13 @@ def _sibling_md(cards_path):
 def _load_source(cards_path, override):
     """-> (whole_text_index, {page: index}, paths). Several sources: whole text only."""
     if override:
-        paths = [override] if os.path.isfile(override) else sorted(
-            glob.glob(os.path.join(override, "**", "*.md"), recursive=True))
+        # Filter .figures.md like the default branch does — otherwise a folder
+        # with x.md + x.figures.md counts as "several sources" and the
+        # page-accurate citation check silently switches off.
+        paths = [override] if os.path.isfile(override) else [
+            p for p in sorted(glob.glob(os.path.join(override, "**", "*.md"),
+                                        recursive=True))
+            if not p.endswith(".figures.md")]
     else:
         sibling = _sibling_md(cards_path)
         if sibling:

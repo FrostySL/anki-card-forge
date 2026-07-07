@@ -138,8 +138,14 @@ def run(paths, threshold=0.8, strict=False):
             line += f"; {no_src} without source"
         if src_pages:
             gaps = src_pages - cited
-            line += (f"; source pages {len(cited)}/{len(src_pages)} covered"
+            # Only count citations of pages that actually exist — a wrong
+            # citation (p. 99 in a 10-page source) must not inflate coverage.
+            covered = cited & src_pages
+            bogus = cited - src_pages
+            line += (f"; source pages {len(covered)}/{len(src_pages)} covered"
                      + (f", gaps: p. {_fmt_pages(gaps)}" if gaps else ", no gaps ✓"))
+            if bogus:
+                line += f"\n    [warn] cites non-existent page(s): p. {_fmt_pages(bogus)}"
         print(line)
 
     print(f"\n== Near-duplicates (Jaccard ≥ {threshold:.0%}) ==")

@@ -132,6 +132,43 @@ class TestLint(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("unknown field 'lable'", out)
 
+    def test_cloze_c0_errors(self):
+        # genanki/Anki build no card for c0 — the note would silently have zero cards.
+        rc, out = _run({"deck": "D", "cards": [{"type": "cloze", "text": "a {{c0::b}}"}]})
+        self.assertEqual(rc, 1)
+        self.assertIn("c0", out)
+
+    def test_cloze_c1_still_passes(self):
+        rc, _ = _run({"deck": "D", "cards": [{"type": "cloze", "text": "a {{c1::b}}"}]})
+        self.assertEqual(rc, 0)
+
+    def test_tags_as_string_errors(self):
+        # genanki would iterate the string: "bio" -> tags b, i, o.
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q", "back": "A", "tags": "bio"}]})
+        self.assertEqual(rc, 1)
+        self.assertIn("list of strings", out)
+
+    def test_non_object_card_reported_not_crash(self):
+        rc, out = _run({"deck": "D", "cards": ["oops"]})
+        self.assertEqual(rc, 1)
+        self.assertIn("JSON object", out)
+
+    def test_non_string_field_reported_not_crash(self):
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": 42, "back": "A"}]})
+        self.assertEqual(rc, 1)
+        self.assertIn("must be a string", out)
+
+    def test_non_object_region_reported_not_crash(self):
+        rc, out = _run(
+            {"deck": "D", "cards": [{"type": "occlusion", "image": "i.png",
+                                     "regions": ["oops"]}]},
+            extra_files={"i.png": b"x"},
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("region 0", out)
+
     def test_all_known_fields_pass_clean(self):
         # A card using every allowed field must NOT trigger any warning.
         rc, out = _run({"deck": "D", "cards": [

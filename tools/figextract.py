@@ -144,9 +144,20 @@ def extract(in_path, out_dir, zoom=2.0, min_area=0.03, max_area=0.92,
     return len(manifest)
 
 
+def _rel_to_cwd(path):
+    """Path relative to the cwd, '/'-separated — so './sources/x.pdf' and the
+    absolute form are recognized like 'sources/x.pdf' (same logic as
+    extract._rel_to_cwd; keep in sync)."""
+    try:
+        rel = os.path.relpath(os.path.abspath(path))
+    except ValueError:  # Windows: other drive -> no relative form
+        rel = path
+    return rel.replace(os.sep, "/")
+
+
 def _default_out_dir(in_path):
     """sources/<topic>/<name>.pdf -> extracted/<topic>/"""
-    norm = in_path.replace(os.sep, "/")
+    norm = _rel_to_cwd(in_path)
     if norm.startswith("sources/"):
         return os.path.join("extracted", os.path.dirname(norm[len("sources/"):]))
     return "extracted"
@@ -174,13 +185,20 @@ def main(argv):
         print(f"No PDFs in {args.input}", file=sys.stderr)
         return 1
     total = 0
+    processed = 0
     for p in inputs:
         if not p.lower().endswith(".pdf") or not os.path.isfile(p):
             print(f"Skipped (not a PDF file): {p}", file=sys.stderr)
             continue
+        processed += 1
         total += extract(p, _default_out_dir(p), args.zoom,
                          args.min_area, args.max_area, args.min_side)
     print(f"Done: {total} figure(s) across all files.")
+    if processed == 0:
+        # Everything skipped (typo'd path etc.) must not look like success —
+        # callers with set -e would silently carry on without any crops.
+        print("No input was processed.", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -53,6 +53,9 @@ def validate(apkg):
         print(f"Notes: {len(col.find_notes(''))}  Cards: {len(card_ids)}")
 
         strip = lambda s: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", s)).strip()
+        # An image or audio IS content: an occlusion front without the optional
+        # header, or a picture-only side, must not count as an empty card.
+        has_content = lambda s: bool(strip(s)) or "<img" in s.lower() or "[sound:" in s.lower()
         errors = empty = 0
         by_type = {}
         for cid in card_ids:
@@ -64,7 +67,7 @@ def validate(apkg):
                 errors += 1
                 print("  RENDER ERROR:", e)
                 continue
-            if not strip(q) or not strip(a):
+            if not has_content(q) or not has_content(a):
                 empty += 1
                 print(f"  EMPTY CARD: {c.note_type()['name']} (cid {cid})")
             by_type.setdefault(c.note_type()["name"], []).append((q, a))
