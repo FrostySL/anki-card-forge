@@ -267,7 +267,8 @@ extracted/<topic>/         Markdown extracts + figure crops (local, via prep.sh)
 decks/<topic>/             generated .cards.json + .apkg (local; only the example in the repo)
 tools/                     preparation, build, checks — see the tools table
 tests/                     stdlib test suite of the logic tools
-.claude/skills/card-authoring/  evidence-based methodology for writing cards
+.claude/                   card-authoring skill, /forge + /rework commands, optional
+                           cards.json lint hook (settings.json — delete to opt out)
 .githooks/                 pre-commit guard for the public repo
 docs/img/                  images/GIF for this README (recordings stay local)
 reference/                 local Anki reference clones (not in the repo, see reference/README.md)
