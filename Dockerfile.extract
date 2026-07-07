@@ -5,6 +5,10 @@ FROM python:3.12-slim
 # Tesseract OCR. English data ships with tesseract-ocr; German is added as an
 # example — append your languages here (e.g. tesseract-ocr-fra, tesseract-ocr-spa)
 # and pass them at runtime via  ./tools/extract.sh ... --lang eng+fra
+# DL3008 ignored on purpose: pinning apt versions against Debian's rolling repos
+# breaks the build once the pinned version is dropped upstream. The deps that
+# affect card OUTPUT are the pinned pip packages below, not the OCR binary.
+# hadolint ignore=DL3008
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu \
  && rm -rf /var/lib/apt/lists/*
