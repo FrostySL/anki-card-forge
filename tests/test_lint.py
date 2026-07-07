@@ -169,6 +169,26 @@ class TestLint(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("region 0", out)
 
+    def test_duplicate_guid_errors(self):
+        # Two notes sharing a GUID -> Anki keeps one, the other's content is lost.
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q1", "back": "A1", "guid": "same"},
+            {"type": "basic", "front": "Q2", "back": "A2", "guid": "same"}]})
+        self.assertEqual(rc, 1)
+        self.assertIn("duplicate guid", out)
+
+    def test_distinct_guids_pass(self):
+        rc, _ = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q1", "back": "A1", "guid": "g1"},
+            {"type": "basic", "front": "Q2", "back": "A2", "guid": "g2"}]})
+        self.assertEqual(rc, 0)
+
+    def test_empty_guid_errors(self):
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "basic", "front": "Q", "back": "A", "guid": "  "}]})
+        self.assertEqual(rc, 1)
+        self.assertIn("non-empty string", out)
+
     def test_all_known_fields_pass_clean(self):
         # A card using every allowed field must NOT trigger any warning.
         rc, out = _run({"deck": "D", "cards": [

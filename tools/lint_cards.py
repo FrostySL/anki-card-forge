@@ -65,10 +65,17 @@ def lint(cards_path):
         warnings.append(f"  [warn]  unknown field {key!r} at deck level – ignored.")
 
     seen_fronts = {}
+    seen_guids = {}
     for i, card in enumerate(cards):
         if not isinstance(card, dict):
             err(i, f"card must be a JSON object, got {type(card).__name__}.")
             continue
+        guid = card.get("guid")
+        if guid is not None:
+            if not isinstance(guid, str) or not guid.strip():
+                err(i, "'guid' must be a non-empty string.")
+            else:
+                seen_guids.setdefault(guid, []).append(i)
         tags = card.get("tags")
         if tags is not None and (
                 not isinstance(tags, list)
@@ -152,6 +159,13 @@ def lint(cards_path):
     for front, idxs in seen_fronts.items():
         if len(idxs) > 1:
             warnings.append(f"  [warn]  duplicate question in cards {idxs}: {front[:60]!r}")
+
+    for guid, idxs in seen_guids.items():
+        if len(idxs) > 1:
+            # Same GUID twice in one package: Anki keeps only one note on import,
+            # the others silently vanish (their content is lost).
+            errors.append(f"  [ERROR] duplicate guid {guid!r} in cards {idxs} — "
+                          "Anki would import only one of them, the rest are lost.")
 
     print(f"== Lint: {cards_path} ({len(cards)} cards) ==")
     for line in errors:
