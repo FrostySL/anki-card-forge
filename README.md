@@ -1,5 +1,7 @@
 # anki-card-forge
 
+[![CI](https://github.com/FrostySL/anki-card-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/FrostySL/anki-card-forge/actions/workflows/ci.yml)
+
 Turn **lecture scripts, books, slides and notes** into high-quality **Anki
 flashcards** — together with [Claude Code](https://claude.com/claude-code).
 Works for **any subject** and produces cards in **any language you ask for**.
