@@ -32,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      # shellcheck is preinstalled on ubuntu-latest runners.
+      # shellcheck is preinstalled on ubuntu-latest runners. -x follows the
+      # sourced tools/_dockerlib.sh so the wrappers are checked with it inlined.
       - name: Lint shell scripts
-        run: shellcheck tools/*.sh .githooks/pre-commit
+        run: shellcheck -x tools/*.sh .githooks/pre-commit
