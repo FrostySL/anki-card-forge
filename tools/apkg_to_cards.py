@@ -35,6 +35,11 @@ in (inside Back/Extra). When editing, do NOT set `explanation`/`source` on top
 (double box) — either leave the box in the field or move it cleanly into
 `explanation`/`source`.
 
+Media in the package (images) is unpacked to <outdir>/media/ and the
+`<img src>` attributes are rewritten to those paths — the rebuild then embeds
+them again (without this, rebuilding an exported image deck dies on the bare
+Anki file names).
+
 Runs on the host (stdlib + zstd only) — NO Docker needed.
 """
 import argparse
@@ -60,7 +65,13 @@ def _decompress_zstd(data: bytes) -> bytes:
     try:
         import zstandard
     except ImportError:
-        proc = subprocess.run(["zstd", "-dc"], input=data, capture_output=True)
+        try:
+            proc = subprocess.run(["zstd", "-dc"], input=data, capture_output=True)
+        except FileNotFoundError:
+            raise RuntimeError(
+                "Need python 'zstandard' OR the 'zstd' CLI to unpack "
+                "collection.anki21b — neither is available (e.g. `apt install zstd`)."
+            ) from None
         if proc.returncode != 0:
             raise RuntimeError(
                 "Need python 'zstandard' OR the 'zstd' CLI to unpack "
@@ -91,6 +102,119 @@ def open_collection(apkg_path):
     tmp.write(raw)
     tmp.close()
     return sqlite3.connect(tmp.name), tmp.name
+
+
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def _read_varint(buf, pos):
+    """Protobuf varint at `pos` -> (value, new pos)."""
+    result = shift = 0
+    while True:
+        b = buf[pos]
+        pos += 1
+        result |= (b & 0x7F) << shift
+        if not b & 0x80:
+            return result, pos
+        shift += 7
+
+
+def _pb_strings(raw, want_field):
+    """Length-delimited payloads of `want_field` in one protobuf message.
+    Enough protobuf to read Anki's MediaEntries without a dependency."""
+    out, pos = [], 0
+    while pos < len(raw):
+        tag, pos = _read_varint(raw, pos)
+        field, wire = tag >> 3, tag & 7
+        if wire == 2:  # length-delimited
+            ln, pos = _read_varint(raw, pos)
+            if field == want_field:
+                out.append(raw[pos:pos + ln])
+            pos += ln
+        elif wire == 0:  # varint
+            _, pos = _read_varint(raw, pos)
+        elif wire == 5:  # 32-bit
+            pos += 4
+        elif wire == 1:  # 64-bit
+            pos += 8
+        else:  # unknown wire type: stop, keep what we have
+            break
+    return out
+
+
+def _media_map(z):
+    """{zip member name: original file name} from the .apkg's `media` entry.
+
+    Legacy format: `media` is plain JSON {"0": "name.png", ...}.
+    Modern format (collection.anki21b): `media` is a zstd-compressed protobuf
+    (MediaEntries: repeated entry, whose field 1 is the name); list index i
+    corresponds to zip member "i".
+    """
+    if "media" not in z.namelist():
+        return {}
+    raw = z.read("media")
+    if raw[:4] == _ZSTD_MAGIC:
+        raw = _decompress_zstd(raw)
+    if not raw:
+        return {}
+    if raw[:1] == b"{":
+        return dict(json.loads(raw.decode("utf-8")))
+    names = [_pb_strings(entry, 1) for entry in _pb_strings(raw, 1)]
+    return {str(i): n[0].decode("utf-8") for i, n in enumerate(names) if n}
+
+
+def extract_media(apkg_path, outdir):
+    """Unpacks the .apkg's media files to <outdir>/media/ and returns
+    {original file name: written path}. Modern exports store each media file
+    zstd-compressed — detected per file via the frame magic, so legacy (raw)
+    files take the same path. No media in the package -> nothing is written."""
+    out = {}
+    media_dir = os.path.join(outdir, "media")
+    with zipfile.ZipFile(apkg_path) as z:
+        members = set(z.namelist())
+        for member, name in sorted(_media_map(z).items()):
+            base = os.path.basename(name)  # never let a name escape media/
+            if not base or member not in members:
+                continue
+            data = z.read(member)
+            if data[:4] == _ZSTD_MAGIC:
+                data = _decompress_zstd(data)
+            os.makedirs(media_dir, exist_ok=True)
+            path = os.path.join(media_dir, base)
+            with open(path, "wb") as fh:
+                fh.write(data)
+            out[base] = path
+    return out
+
+
+_IMG_SRC_RE = re.compile(r"""(<img\b[^>]*?\bsrc=(["']))([^"']+)(\2)""", re.IGNORECASE)
+
+
+def rewrite_media_srcs(by_deck, media_paths):
+    """Points <img src="X"> in the extracted fields at the unpacked media/
+    copies (relative path, the form build_deck embeds again). Without this,
+    the rebuild of an exported deck with images dies on the bare Anki file
+    names. Unknown srcs (http/data or not in the package) stay untouched.
+    -> number of rewritten srcs."""
+    if not media_paths:
+        return 0
+    count = 0
+
+    def repl(m):
+        nonlocal count
+        target = media_paths.get(os.path.basename(m.group(3)))
+        if not target:
+            return m.group(0)
+        count += 1
+        return m.group(1) + os.path.relpath(target).replace(os.sep, "/") + m.group(4)
+
+    for cards in by_deck.values():
+        for card in cards:
+            for key in ("front", "back", "text", "extra"):
+                val = card.get(key)
+                if isinstance(val, str) and "<img" in val.lower():
+                    card[key] = _IMG_SRC_RE.sub(repl, val)
+    return count
 
 
 def _maps(con):
@@ -152,9 +276,17 @@ def extract(con):
 def write_cards_json(by_deck, outdir):
     os.makedirs(outdir, exist_ok=True)
     files = []
+    used = set()
     for deck, cards in sorted(by_deck.items()):
-        safe = re.sub(r"[^\w.+-]+", "_", deck).strip("_")
-        path = os.path.join(outdir, safe + ".cards.json")
+        safe = re.sub(r"[^\w.+-]+", "_", deck).strip("_") or "deck"
+        # Different deck names can sanitize identically ("A::B" and "A B") —
+        # suffix instead of silently overwriting the first file.
+        cand, n = safe, 1
+        while cand in used:
+            n += 1
+            cand = f"{safe}_{n}"
+        used.add(cand)
+        path = os.path.join(outdir, cand + ".cards.json")
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"deck": deck, "cards": cards}, fh, ensure_ascii=False, indent=1)
         files.append((path, deck, len(cards)))
@@ -181,11 +313,16 @@ def main(argv=None):
         con.close()
         os.unlink(tmp)
 
+    media_paths = extract_media(args.apkg, outdir)
+    rewritten = rewrite_media_srcs(by_deck, media_paths)
     files = write_cards_json(by_deck, outdir)
     total = sum(n for _, _, n in files)
     print(f"== {os.path.basename(args.apkg)} -> {len(files)} cards.json ({total} notes) ==")
     for path, deck, n in files:
         print(f"  {n:3d}  {deck}")
+    if media_paths:
+        print(f"Media: {len(media_paths)} file(s) -> {os.path.join(outdir, 'media')}/"
+              f" ({rewritten} <img> src rewritten)")
     if warnings:
         print(f"\n{len(warnings)} warning(s):")
         for w in warnings:
