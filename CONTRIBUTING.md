@@ -61,7 +61,9 @@ for df in Dockerfile Dockerfile.*; do
 done
 ```
 
-Run the Docker integration checks for changes to the corresponding tools:
+Run the Docker integration checks for changes to the corresponding tools.
+The [integration guide](tests/integration/README.md) lists the required Docker
+images; build the extraction and preview images before the visual check:
 
 ```bash
 python3 tests/integration/check_pipeline.py build
