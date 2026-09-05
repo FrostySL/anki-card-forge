@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # genanki produces the .apkg files
 RUN pip install --no-cache-dir "genanki==0.13.1"

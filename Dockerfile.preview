@@ -1,6 +1,6 @@
 # Image for card previews (headless Chromium) AND OCR label detection
 # (Tesseract). Deliberately separate from the slim builder image (anki-cards).
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # Browser at a world-readable path; HOME writable for the non-root user.
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
