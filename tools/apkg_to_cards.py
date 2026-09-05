@@ -27,7 +27,8 @@ them would disconnect existing decks):
   'Anki-Karten Type-in'        -> typein
   'Anki-Karten Basic+Reversed' -> basic + "reverse": true
 Cloze is also detected via `{{c…::}}` in the first field. Occlusion notes CANNOT
-be converted back to image/regions (warning, skipped). Foreign note types are
+be converted back to image/regions; conversion aborts before writing partial
+JSON. Foreign note types are
 taken over best-effort as basic (warning).
 
 IMPORTANT: the extracted fields already contain any "details & source" box baked
@@ -44,6 +45,7 @@ Runs on the host (stdlib + zstd only) — NO Docker needed.
 """
 import argparse
 from _filenames import unique_stems, unique_media_names
+from _card_media import rewrite_local_images
 import io
 import json
 import os
@@ -102,7 +104,14 @@ def open_collection(apkg_path):
     tmp = tempfile.NamedTemporaryFile(suffix=".anki2", delete=False)
     tmp.write(raw)
     tmp.close()
-    return sqlite3.connect(tmp.name), tmp.name
+    con = sqlite3.connect(tmp.name)
+    # Modern Anki schemas declare this application collation, including on
+    # WITHOUT ROWID tables. SQLite needs it registered even for a full scan.
+    # Readers below do not filter/order by those text columns; all note fields
+    # remain untouched and numeric field ordinals are sorted in Python.
+    con.create_collation("unicase", lambda left, right:
+                         (left.casefold() > right.casefold()) - (left.casefold() < right.casefold()))
+    return con, tmp.name
 
 
 _ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
@@ -195,9 +204,6 @@ def extract_media(apkg_path, outdir):
     return out
 
 
-_IMG_SRC_RE = re.compile(r"""(<img\b[^>]*?\bsrc=(["']))([^"']+)(\2)""", re.IGNORECASE)
-
-
 def rewrite_media_srcs(by_deck, media_paths):
     """Points <img src="X"> in the extracted fields at the unpacked media/
     copies (relative path, the form build_deck embeds again). Without this,
@@ -208,20 +214,20 @@ def rewrite_media_srcs(by_deck, media_paths):
         return 0
     count = 0
 
-    def repl(m):
+    def repl(source):
         nonlocal count
-        target = media_paths.get(os.path.basename(m.group(3)))
+        target = media_paths.get(source.replace("\\", "/").rsplit("/", 1)[-1])
         if not target:
-            return m.group(0)
+            return source
         count += 1
-        return m.group(1) + os.path.relpath(target).replace(os.sep, "/") + m.group(4)
+        return os.path.relpath(target).replace(os.sep, "/")
 
     for cards in by_deck.values():
         for card in cards:
-            for key in ("front", "back", "text", "extra"):
+            for key in ("front", "back", "text", "extra", "more"):
                 val = card.get(key)
                 if isinstance(val, str) and "<img" in val.lower():
-                    card[key] = _IMG_SRC_RE.sub(repl, val)
+                    card[key] = rewrite_local_images(val, repl)
     return count
 
 
@@ -252,14 +258,11 @@ def _note_to_card(model, fields, guid, tags, nid, warnings):
     if "cloze" in m or "{{c" in f(0):
         card.update(type="cloze", text=f(0), extra=f(1))
     elif "type-in" in m or "typein" in m:
-        card.update(type="typein", front=f(0), back=f(1))
+        card.update(type="typein", front=f(0), back=f(1), more=f(2))
     elif "reversed" in m or "reverse" in m:
-        # The reversed model has [Front, Back, More]; append More (3rd field) to
-        # Back so a possibly baked-in box is not lost.
-        back = f(1) + (f(2) if f(2).strip() else "")
-        card.update(type="basic", reverse=True, front=f(0), back=back)
-        if f(2).strip():
-            warnings.append(f"nid {nid}: reversed – 'More' field appended to Back (verify).")
+        # More is a separate field: putting it into Back changes the reverse
+        # question and rebuilding would clear the original More field.
+        card.update(type="basic", reverse=True, front=f(0), back=f(1), more=f(2))
     else:
         if model not in KNOWN:
             warnings.append(f"nid {nid}: unknown note type {model!r} -> taken over as basic.")
@@ -268,16 +271,69 @@ def _note_to_card(model, fields, guid, tags, nid, warnings):
     return card
 
 
-def extract(con):
+def raw_notes(con):
+    """Read every note without converting or dropping any field/note type.
+
+    Numeric note/card IDs and scheduling are deliberately not identities for a
+    package comparison. Deck memberships and card ordinals remain available so
+    callers can detect changes that affect existing cards. Missing field names
+    or ordinals stay explicit, rather than being guessed for malformed exports.
+    """
+    ntype, decks, schema = _maps(con)
+    field_names = {}
+    if schema == "modern":
+        tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "fields" in tables:
+            # Modern exports may index field names with Anki-only collations.
+            # Let SQLite scan the rows and sort the portable numeric keys here.
+            for mid, _ord, name in sorted(con.execute("SELECT ntid, ord, name FROM fields"),
+                                          key=lambda row: (row[0], row[1])):
+                field_names.setdefault(mid, []).append(name)
+    else:
+        models = json.loads(con.execute("SELECT models FROM col").fetchone()[0])
+        for mid, model in models.items():
+            field_names[int(mid)] = [field["name"] for field in sorted(
+                model.get("flds", []), key=lambda field: field.get("ord", 0))]
+    columns = {row[1] for row in con.execute("PRAGMA table_info(cards)")}
+    ord_column = "ord" if "ord" in columns else "NULL"
+    memberships, ordinals = {}, {}
+    for nid, did, ordinal in con.execute(f"SELECT nid, did, {ord_column} FROM cards"):
+        memberships.setdefault(nid, set()).add(decks.get(did, f"did:{did}"))
+        if ordinal is not None:
+            ordinals.setdefault(nid, []).append(ordinal)
+    notes = []
+    for nid, guid, mid, flds, tags in con.execute("SELECT id, guid, mid, flds, tags FROM notes ORDER BY id"):
+        notes.append({"id": nid, "guid": guid, "model_id": mid,
+                      "model": ntype.get(mid, f"mid:{mid}"), "schema": schema,
+                      "field_names": field_names.get(mid, []), "fields": flds.split(FIELD_SEP),
+                      "tags": tags.split(), "decks": sorted(memberships.get(nid, {"Default"})),
+                      "ords": sorted(ordinals.get(nid, [])) if "ord" in columns else None})
+    return notes
+
+
+def extract(con, *, require_complete=False):
     """-> (dict deck name->[cards], warnings)."""
-    ntype, decks, _schema = _maps(con)
-    note_deck = {nid: decks.get(did, "Default")
-                 for nid, did in con.execute("SELECT nid, MIN(did) FROM cards GROUP BY nid")}
     by_deck, warnings = {}, []
-    for nid, guid, mid, flds, tags in con.execute("SELECT id, guid, mid, flds, tags FROM notes"):
-        card = _note_to_card(ntype.get(mid, f"mid:{mid}"), flds.split(FIELD_SEP), guid, tags, nid, warnings)
+    incomplete = []
+    for note in raw_notes(con):
+        nid, model, fields = note["id"], note["model"], note["fields"]
+        expected = 3 if model in {"Anki-Karten Type-in", "Anki-Karten Basic+Reversed"} else 2
+        if model in KNOWN and len(fields) != expected:
+            incomplete.append(f"nid {nid}: {model!r} has {len(fields)} fields; expected {expected}.")
+            continue
+        if len(note["decks"]) != 1:
+            incomplete.append(f"nid {nid}: cards belong to several decks; cards.json cannot preserve this assignment.")
+            continue
+        card = _note_to_card(model, fields, note["guid"], " ".join(note["tags"]), nid, warnings)
         if card:
-            by_deck.setdefault(note_deck.get(nid, "Default"), []).append(card)
+            by_deck.setdefault(note["decks"][0], []).append(card)
+        else:
+            incomplete.append(f"nid {nid}: {model!r} cannot be converted to image/regions.")
+    if incomplete and require_complete:
+        raise RuntimeError("Incomplete rework decode refused; no cards.json was written. "
+                           "Keep the original .apkg and edit unsupported notes in Anki.\n- "
+                           + "\n- ".join(incomplete))
+    warnings.extend("Incomplete decode: " + message for message in incomplete)
     return by_deck, warnings
 
 
@@ -308,7 +364,10 @@ def main(argv=None):
 
     con, tmp = open_collection(args.apkg)
     try:
-        by_deck, warnings = extract(con)
+        try:
+            by_deck, warnings = extract(con, require_complete=True)
+        except RuntimeError as error:
+            ap.exit(1, f"Decode error: {error}\n")
     finally:
         con.close()
         os.unlink(tmp)
@@ -329,7 +388,7 @@ def main(argv=None):
             print("  -", w)
     print(f"\ncards.json in: {outdir}")
     quoted = " ".join(f'"{p}"' for p, _, _ in files)
-    print("Rebuild (GUIDs/progress preserved), e.g.:")
+    print("Rebuild compatible note types with preserved GUIDs, then verify with diff --strict:")
     starter = r".\forge.cmd build" if os.name == "nt" else "./tools/build.sh"
     print(f'  {starter} {quoted} "out.apkg"')
     return 0

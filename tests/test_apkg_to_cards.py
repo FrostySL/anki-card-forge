@@ -9,6 +9,7 @@ The note type names ("Anki-Karten ...") are this project's real, intentionally
 unchanged legacy names — see the note in tools/build_deck.py.
 """
 import json
+import io
 import os
 import shutil
 import sqlite3
@@ -18,6 +19,8 @@ import tempfile
 import unittest
 import zipfile
 from unittest import mock
+from contextlib import redirect_stdout, redirect_stderr
+from pathlib import Path
 
 try:
     import zstandard
@@ -142,6 +145,131 @@ class TestNoteMapping(unittest.TestCase):
         self.assertEqual(rev["type"], "basic")
         self.assertTrue(rev["reverse"])
 
+    def test_more_stays_byte_identical_in_its_own_field(self):
+        more = ' \n<details><summary>Source</summary><img src="figure.png"></details>\n '
+        for model in ("Anki-Karten Type-in", "Anki-Karten Basic+Reversed"):
+            with self.subTest(model=model):
+                warns = []
+                card = a2c._note_to_card(model, ["Question", "Answer", more], "g", "", 1, warns)
+                self.assertEqual(card["back"], "Answer")
+                self.assertEqual(card["more"], more)
+                self.assertNotIn("explanation", card)
+                self.assertNotIn("source", card)
+                self.assertEqual(warns, [])
+
+
+class TestRawNotes(unittest.TestCase):
+    def test_more_build_decode_rebuild_preserves_all_note_fields_and_card_ordinals(self):
+        try:
+            builder = load("build_deck")
+        except ModuleNotFoundError as error:
+            if error.name == "genanki":
+                self.skipTest("genanki is not installed")
+            raise
+
+        def snapshot(package):
+            con, tmp = a2c.open_collection(package)
+            try:
+                return sorted((note["guid"], note["model_id"], note["fields"], note["ords"])
+                              for note in a2c.raw_notes(con))
+            finally:
+                con.close()
+                os.unlink(tmp)
+
+        with tempfile.TemporaryDirectory() as directory, redirect_stdout(io.StringIO()):
+            source = Path(directory) / "source.cards.json"
+            source.write_text(json.dumps({"deck": "Roundtrip::More", "cards": [
+                {"type": "typein", "guid": "typein-more", "front": "Question", "back": "Answer",
+                 "more": " \n<p>Raw feedback</p>\n ", "explanation": "Why", "source": "Page 1"},
+                {"type": "basic", "reverse": True, "guid": "reverse-more", "front": "Term", "back": "Definition",
+                 "more": " \n<p>Reverse feedback</p>\n ", "explanation": "Context", "source": "Page 2"}
+            ]}), encoding="utf-8")
+            original = Path(directory) / "original.apkg"
+            builder.build(str(source), str(original))
+            con, tmp = a2c.open_collection(original)
+            try:
+                decoded, warnings = a2c.extract(con, require_complete=True)
+            finally:
+                con.close()
+                os.unlink(tmp)
+            self.assertEqual(warnings, [])
+            output = a2c.write_cards_json(decoded, Path(directory) / "decoded")[0][0]
+            rebuilt = Path(directory) / "rebuilt.apkg"
+            builder.build(output, str(rebuilt))
+            self.assertEqual(snapshot(original), snapshot(rebuilt))
+
+    def test_every_foreign_field_and_card_assignment_is_preserved(self):
+        with sqlite3.connect(":memory:") as con:
+            _legacy(con)
+            model = {"name": "Foreign IO", "flds": [
+                {"name": "More", "ord": 2}, {"name": "Front", "ord": 0}, {"name": "Back", "ord": 1}]}
+            con.execute("UPDATE col SET models=?", (json.dumps({"123": model}),))
+            con.execute("UPDATE notes SET flds=? WHERE id=1", ("F\x1fB\x1fraw more",))
+            con.execute("ALTER TABLE cards ADD COLUMN ord INTEGER DEFAULT 0")
+            con.execute("INSERT INTO cards VALUES (1,1,1)")
+            note = a2c.raw_notes(con)[0]
+        self.assertEqual(note["guid"], "guidA")
+        self.assertEqual(note["model_id"], 123)
+        self.assertEqual(note["fields"], ["F", "B", "raw more"])
+        self.assertEqual(note["field_names"], ["Front", "Back", "More"])
+        self.assertEqual(note["decks"], ["Default", "T::Sub"])
+        self.assertEqual(note["ords"], [0, 1])
+
+    def test_modern_field_names_use_note_type_and_ordinal(self):
+        with sqlite3.connect(":memory:") as con:
+            _modern(con)
+            con.execute("CREATE TABLE fields (ntid INTEGER, ord INTEGER, name TEXT)")
+            con.executemany("INSERT INTO fields VALUES (?,?,?)", [(123, 1, "Back"), (123, 0, "Front")])
+            note = a2c.raw_notes(con)[0]
+        self.assertEqual(note["schema"], "modern")
+        self.assertEqual(note["field_names"], ["Front", "Back"])
+        self.assertEqual(note["fields"], ["F", "B"])
+
+    def test_modern_export_with_anki_collated_without_rowid_fields(self):
+        def modern(con):
+            _modern(con)
+            con.create_collation("unicase", lambda left, right: (left > right) - (left < right))
+            con.execute("CREATE TABLE fields (ntid INTEGER NOT NULL, ord INTEGER NOT NULL, "
+                        "name TEXT NOT NULL COLLATE unicase, PRIMARY KEY (ntid, ord)) WITHOUT ROWID")
+            con.execute("CREATE UNIQUE INDEX fields_name ON fields (ntid, name)")
+            con.executemany("INSERT INTO fields VALUES (?,?,?)", [(123, 1, "Back"), (123, 0, "Front")])
+        package = _make_apkg("collection.anki21", _sqlite_bytes(modern))
+        con, tmp = a2c.open_collection(package)
+        try:
+            note = a2c.raw_notes(con)[0]
+            self.assertEqual(note["field_names"], ["Front", "Back"])
+            self.assertEqual(note["fields"], ["F", "B"])
+        finally:
+            con.close()
+            os.unlink(tmp)
+            os.unlink(package)
+
+    def test_cli_rejects_partial_occlusion_decode_before_writing(self):
+        def mixed(con):
+            _legacy(con)
+            models = json.loads(con.execute("SELECT models FROM col").fetchone()[0])
+            models["456"]["name"] = "Anki-Karten Image Occlusion"
+            con.execute("UPDATE col SET models=?", (json.dumps(models),))
+        apkg = _make_apkg("collection.anki2", _sqlite_bytes(mixed))
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                out = os.path.join(directory, "decoded")
+                with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as result:
+                    a2c.main([apkg, "--out", out])
+                self.assertEqual(result.exception.code, 1)
+                self.assertFalse(os.path.exists(out))
+            con, tmp = a2c.open_collection(apkg)
+            try:
+                cards, warnings = a2c.extract(con)  # Mirrors may still index the supported subset.
+                self.assertEqual(sum(map(len, cards.values())), 1)
+                self.assertTrue(any("Incomplete decode" in warning for warning in warnings))
+                self.assertEqual(len(a2c.raw_notes(con)), 2)
+            finally:
+                con.close()
+                os.unlink(tmp)
+        finally:
+            os.unlink(apkg)
+
 
 def _legacy_img(con):
     """Legacy schema with one basic note that references an image twice."""
@@ -198,6 +326,23 @@ class TestMedia(unittest.TestCase):
                 self.assertIn('src="out/media/fig.png"', card["back"])
             finally:
                 os.chdir(cwd)
+
+    def test_more_media_is_rewritten(self):
+        with tempfile.TemporaryDirectory() as directory:
+            media = os.path.join(directory, "figure.png")
+            cards = {"T": [{"type": "typein", "more": '<img src="figure.png">'}]}
+            self.assertEqual(a2c.rewrite_media_srcs(cards, {"figure.png": media}), 1)
+            self.assertIn(os.path.relpath(media).replace(os.sep, "/"), cards["T"][0]["more"])
+
+    def test_valid_image_attribute_variants_are_rewritten_without_changing_other_html(self):
+        variants = ('<img src = "figure.png">', "<img SRC='figure.png'>", '<img src=figure.png>')
+        for markup in variants:
+            with self.subTest(markup=markup):
+                cards = {"T": [{"back": "before " + markup + " after"}]}
+                self.assertEqual(a2c.rewrite_media_srcs(cards, {"figure.png": "decoded/media/figure.png"}), 1)
+                self.assertIn("decoded/media/figure.png", cards["T"][0]["back"])
+                self.assertTrue(cards["T"][0]["back"].startswith("before "))
+                self.assertTrue(cards["T"][0]["back"].endswith(" after"))
 
     def test_modern_protobuf_media_map(self):
         with tempfile.TemporaryDirectory() as d:

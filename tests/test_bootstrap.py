@@ -1,5 +1,6 @@
 """Exercise the actual inbox-PowerShell launcher from a tiny clean Windows copy."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -7,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import venv
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +24,7 @@ class WindowsBootstrap(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / "Anki Test ä"
         (self.root / "tools").mkdir(parents=True)
-        for name in ("forge.cmd", "tools/bootstrap.ps1", "tools/runtime-manifest.json"):
+        for name in ("forge.cmd", "forge.ps1", "tools/bootstrap.ps1", "tools/native_process.ps1", "tools/runtime-manifest.json"):
             shutil.copyfile(ROOT / name, self.root / name)
         self.env = {key: value for key, value in os.environ.items() if not re.match(
             r"^(UV_|PYTHON|PLAYWRIGHT_|ACF_|PIP_|VIRTUAL_ENV$|TESSDATA_PREFIX$|TESSERACT_|NODE_|npm_)",
@@ -37,6 +39,8 @@ class WindowsBootstrap(unittest.TestCase):
     def launch(self, *arguments):
         # cmd /s /c needs an outer quote pair around the entire invocation as
         # well as the executable's quote pair when its path contains spaces.
+        # This helper covers ordinary CMD inputs. Arbitrary HTML/metacharacters
+        # use the PowerShell entry point below; list2cmdline is CRT, not CMD quoting.
         invocation = subprocess.list2cmdline([str(self.root / "forge.cmd"), *arguments])
         return subprocess.run(f'"{CMD}" /d /s /c "{invocation}"', cwd=self.root,
                               env=self.env, capture_output=True, text=True,
@@ -45,6 +49,61 @@ class WindowsBootstrap(unittest.TestCase):
     def assert_clean(self):
         self.assertFalse((self.root / ".forge").exists())
         self.assertFalse((self.root / ".venv").exists())
+
+    def argv_fixture(self):
+        # Use the real Python executable in a disposable venv, but a tiny argv
+        # probe instead of Forge/Anki. No installed apps or network are touched.
+        venv.EnvBuilder(with_pip=False).create(self.root / ".venv")
+        (self.root / "uv.lock").write_text("synthetic lock\n", encoding="utf-8")
+        (self.root / ".forge").mkdir()
+        state = {
+            "root": str(self.root),
+            "manifest_sha256": hashlib.sha256((self.root / "tools/runtime-manifest.json").read_bytes()).hexdigest(),
+            "lock_sha256": hashlib.sha256((self.root / "uv.lock").read_bytes()).hexdigest(),
+        }
+        (self.root / ".forge/setup-state.json").write_text(json.dumps(state), encoding="utf-8")
+        (self.root / "tools/forge.py").write_text(
+            "import json, sys, os\nprint(json.dumps({'argv':sys.argv[1:], 'cwd':os.getcwd()}))\nsys.exit(17)\n",
+            encoding="utf-8")
+
+    def test_cmd_launcher_preserves_existing_quoted_inputs(self):
+        self.argv_fixture()
+        arguments = ("anki", "update-note", "123", "--field",
+                     'Front=<b class="two words">Größe</b>', "--field",
+                     'Back=<img src="folder name/image.png">', "path with space\\")
+        result = self.launch(*arguments)
+        self.assertEqual(result.returncode, 17, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["argv"], list(arguments))
+
+    def test_powershell_launcher_preserves_literal_html_empty_values_and_parent_environment(self):
+        self.argv_fixture()
+        arguments = ("anki", "update-note", "123", "--field",
+                     'Front=<b class="two words" title="one & two">Größe</b>', "--field",
+                     "Back=<img src='folder name/image.png'>", "path with space\\", "",
+                     r'Back=slash\"quote', "literal %PATH% !name! ^ (x) | > < ; ' $HOME")
+        caller = self.root / "sources/Topic ä"
+        caller.mkdir(parents=True)
+
+        def literal(value):
+            return "'" + str(value).replace("'", "''") + "'"
+
+        wrapper = self.root / "invoke-forge.ps1"
+        wrapper.write_text(
+            "$ErrorActionPreference = 'Stop'\n"
+            "$previousPath = $env:PATH\n$env:UV_INDEX_URL = 'unchanged-parent-value'\n"
+            + "Set-Location -LiteralPath " + literal(caller) + "\n"
+            + "$forward = @(" + ", ".join(map(literal, arguments)) + ")\n"
+            + "& " + literal(self.root / "forge.ps1") + " @forward\n"
+            + "$status = $LASTEXITCODE\n"
+            + "if ($env:PATH -ne $previousPath -or $env:UV_INDEX_URL -ne 'unchanged-parent-value') { throw 'Parent environment changed' }\n"
+            + "exit $status\n", encoding="utf-8-sig")
+        result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(wrapper)],
+                                cwd=self.root, env=self.env, capture_output=True, text=True,
+                                encoding="utf-8", timeout=30)
+        self.assertEqual(result.returncode, 17, result.stdout + result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["argv"], list(arguments))
+        self.assertEqual(Path(report["cwd"]), caller)
 
     def test_cold_doctor_json_is_read_only(self):
         result = self.launch("doctor", "--json")
@@ -69,6 +128,14 @@ class WindowsBootstrap(unittest.TestCase):
         self.assertIn("Commands:", result.stdout)
         self.assertRegex(result.stdout, r"\bdiff\b")
         self.assertRegex(result.stdout, r"\btest\b")
+        self.assert_clean()
+
+    def test_cold_powershell_entry_help_needs_no_runtime(self):
+        result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                                 str(self.root / "forge.ps1")], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Commands:", result.stdout)
         self.assert_clean()
 
     def test_cold_offline_setup_stops_at_cache_miss(self):
@@ -186,7 +253,8 @@ Write-Output 'PASS: completion evidence'
     def test_acceptance_still_rejects_host_command_and_retains_resolution(self):
         driver, reports = self.acceptance_fixture()
         wrapper = self.root / "probe.ps1"
-        wrapper.write_text("function docker { throw 'Host tool must never be called' }\n"
+        wrapper.write_text("[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n"
+                           "function docker { throw 'Host tool must never be called' }\n"
                            "& (Join-Path $PSScriptRoot 'tests/integration/windows_acceptance.ps1') "
                            "-ReportDir (Join-Path (Split-Path $PSScriptRoot -Parent) 'reports')\n",
                            encoding="utf-8-sig")

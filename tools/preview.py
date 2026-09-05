@@ -27,6 +27,8 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 import build_deck  # same tools/ directory -> sys.path[0]
+from _card_media import rewrite_local_images
+from _card_schema import validate_schema
 from playwright.sync_api import sync_playwright
 
 MATHJAX_ORIGIN = "https://anki-card-forge.invalid/mathjax"
@@ -120,13 +122,12 @@ def _short(text, n=60):
 def _inline_imgs(html_text):
     """Replaces local <img src="path"> with data URIs so the standalone
     preview HTML shows the same embedded images as the built .apkg."""
-    return build_deck._IMG_SRC_RE.sub(
-        lambda m: m.group(1) + _data_uri(m.group(3)) + m.group(4), html_text
-    )
+    return rewrite_local_images(html_text, _data_uri)
 
 
 def _collect(data):
     """-> list of (ctype, label, front_html, back_html)."""
+    validate_schema(data)
     items = []
     for card in data["cards"]:
         ctype = card.get("type", "basic")
@@ -189,6 +190,7 @@ def _write_index(outdir, rows, themes=("light",)):
 def preview(cards_path, themes=("light", "dark"), offline=False):
     with open(cards_path, encoding="utf-8") as f:
         data = json.load(f)
+    validate_schema(data)
 
     base = os.path.basename(cards_path)
     for suffix in (".cards.json", ".json"):

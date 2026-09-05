@@ -36,6 +36,7 @@ function Show-BootstrapHelp {
     Write-Output 'Setup downloads a private Python, packages, OCR and browser into this project.'
     Write-Output 'Repeat without downloads: .\forge.cmd setup --offline'
     Write-Output 'Add OCR languages: .\forge.cmd setup --lang eng+deu+fra'
+    Write-Output 'For literal HTML/quotes in PowerShell: & .\forge.ps1 anki update-note ... --field ''Front=<b title="a & b">Text</b>'''
 }
 
 function Assert-ManagedPath([string] $Candidate) {
@@ -165,6 +166,8 @@ function Set-ChildEnvironment {
         (Join-Path $managedRoot ('tools\tesseract-' + $manifest.tesseract_version)) + ';' + $env:PATH
 }
 
+. (Join-Path $PSScriptRoot 'native_process.ps1')
+
 $setupLock = $null
 $previousConsoleEncoding = [Console]::OutputEncoding
 $OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -267,8 +270,7 @@ try {
             throw 'The managed setup is outdated or the project was moved. Run .\forge.cmd setup.'
         }
     }
-    & $venvPython (Join-Path $PSScriptRoot 'forge.py') @ForgeArguments
-    $result = $LASTEXITCODE
+    $result = Invoke-ManagedProcess -Executable $venvPython -Arguments (@((Join-Path $PSScriptRoot 'forge.py')) + $ForgeArguments)
 } catch {
     Write-Host ("Setup/launcher error: " + $_.Exception.Message)
     $result = 1
