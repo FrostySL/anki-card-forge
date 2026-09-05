@@ -1,6 +1,6 @@
 # Image for source preparation: PDF -> Markdown (with OCR for scanned pages).
 # Separate from the slim builder image; runs only once per new source.
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # Tesseract OCR. English data ships with tesseract-ocr; German is added as an
 # example — append your languages here (e.g. tesseract-ocr-fra, tesseract-ocr-spa)
