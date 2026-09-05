@@ -1,8 +1,8 @@
 # Native Windows-Einrichtung und Plattformtests
 
-Die gemeinsame Befehlssteuerung unterstützt **Windows 11 x64 nativ** und den
-bestehenden **Linux-/Docker-Ablauf**. Native Linux-Einrichtung, macOS und Windows
-ARM64 sind nicht Teil dieser Umsetzung. Der Karteninhalt entsteht weiterhin
+Unterstützt werden **Windows 11 x64 nativ** und **Linux/WSL2 über Docker**.
+Eine Linux-Einrichtung ohne Docker sowie macOS und Windows ARM64 werden derzeit
+nicht unterstützt. Der Karteninhalt entsteht weiterhin
 im frei gewählten KI-Assistenten; das Repository ruft keine Modell-API auf.
 
 ## Windows verwenden
@@ -13,16 +13,19 @@ entpacken. Ein normaler Benutzer kann anschließend in PowerShell starten:
 ```powershell
 .\forge.cmd setup
 .\forge.cmd doctor
-.\forge.cmd prep sources\Biologie
-.\forge.cmd preview decks\Biologie\kapitel.cards.json
-.\forge.cmd finish decks\Biologie\kapitel.cards.json
-.\forge.cmd anki ping
 ```
 
 Python, Docker, Git und WSL müssen dafür nicht vorinstalliert sein. Setup lädt
 beim ersten Lauf die benötigten Komponenten herunter und prüft deren Funktion.
 Bei einer ZIP-Kopie wird die Einrichtung des Git-Hooks übersprungen. Bei einem
 Git-Checkout aktiviert Setup den Commit-Guard, sofern Git verfügbar ist.
+
+Lege nach erfolgreichem Setup eine PDF-, Text- oder Markdown-Quelle in einem
+Themenordner ab, zum Beispiel `sources/Biologie/kapitel.pdf`. Folge anschließend
+dem Abschnitt [Erstelle deinen ersten Stapel](../README.md#create-your-first-deck).
+Dort findest du einen kopierbaren Prompt und den vollständigen Ablauf:
+Der Assistent erstellt zunächst die `.cards.json`; danach werden die Karten
+geprüft, als Vorschau gerendert und als `.apkg` gebaut.
 
 `doctor` prüft nur und lädt nichts herunter. Ein wiederholtes `setup` verwendet
 intakte Komponenten erneut und repariert beschädigte oder fehlende Bestandteile.
