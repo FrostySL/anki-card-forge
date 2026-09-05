@@ -61,6 +61,12 @@ components and pass integration again. Reports include timings, logs, preflight,
 doctor and provenance results, plus synthetic failure artifacts. The execution
 policy flag applies to this process only; persistent Windows policy is unchanged.
 
+Native stdout and stderr are captured explicitly in `cold-setup.log`,
+`offline-setup.log`, `unit-tests.log` and `provenance.log`, including in hidden
+PowerShell 5 processes. On failure, inspect `driver-error.txt` and the error in
+`result.json`; available `.forge/logs/*.log` files are retained under
+`runtime-logs/`. Runtime binaries and download caches are excluded from reports.
+
 Windows CI runs the driver without a setup-python action or dependency cache,
 in an archive path containing spaces and a non-ASCII character. It tests the
 Git-dependent guards separately with Git available. POSIX-only tests remain in
@@ -94,8 +100,13 @@ adapter and acknowledges this to the standard-user driver. The repeat therefore
 runs without network access; its evidence is saved in `network-isolated.json`.
 Hosted CI uses downloader offline flags, without changing its network adapters.
 The coordinator retains partial reports on failure, rejects artifact junctions
-and symlinks, and stops its guest test process after 45 minutes. Close the Sandbox
-only after `reports/result.json` or `reports/sandbox-error.txt` is copied back. The
+and symlinks, and stops its guest test process after 45 minutes. Keep the Sandbox
+open until the complete reports have been copied back. Success requires matching
+`driver-complete.json` and `result.json` with `success: true` and `exit_code: 0`,
+along with the preflight, provenance, doctor and network-isolation evidence.
+The completion marker is written after driver cleanup; the coordinator checks
+its process ID and nonce before accepting the result. Coordinator failures are
+recorded in `sandbox-error.txt` and must be resolved before acceptance. The
 helper itself must be tested on the target Windows build; a generated `.wsb`
 does not establish success. Feature activation may require host administrator
 consent and a reboot, separately from product setup's standard-user requirement.

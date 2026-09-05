@@ -288,10 +288,34 @@ class RuntimeAssets(unittest.TestCase):
                 patch.object(native, "_browser_identity", return_value="pinned"), \
                 patch.object(native.runtime_assets, "fetch_asset", return_value=executable) as fetch, \
                 patch.object(native, "browser_cache_server", return_value=nullcontext("http://127.0.0.1:1234")), \
+                patch.object(native, "_record_browser_inventory") as record, \
                 patch.object(native, "_run", side_effect=repair), \
                 patch.object(native, "_launch_browser", return_value="148.0"):
             native._ensure_browser({"PLAYWRIGHT_BROWSERS_PATH": str(browsers)}, offline=False, log=io.StringIO())
-        self.assertTrue(assets._ready(browsers, "pinned", ["chrome.exe"]))
+        record.assert_called_once()
+        self.assertEqual(record.call_args.args[:2], (browsers, "pinned"))
+        self.assertEqual(len(record.call_args.args[2]), 4)
+
+    def test_browser_inventory_checks_archive_payloads_while_generated_logs_can_change(self):
+        browsers = self.root / "browsers"
+        folder = browsers / "chromium-123" / "chrome-win64"
+        folder.mkdir(parents=True)
+        archive = self.root / "browser.zip"
+        with zipfile.ZipFile(archive, "w") as package:
+            for name in ("chrome.exe", "chrome.dll"):
+                package.writestr("chrome-win64/" + name, self.payload)
+                (folder / name).write_bytes(self.payload)
+        log = folder / "debug.log"
+        log.write_text("first launch", encoding="utf-8")
+        native._record_browser_inventory(browsers, "pinned", {"chromium-123": archive})
+        log.write_text("second launch changed the diagnostic log", encoding="utf-8")
+        self.assertTrue(assets._ready(browsers, "pinned", ["chromium-123/chrome-win64/chrome.exe"]))
+        installed = json.loads((browsers / ".asset.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(installed["files"]), 2)
+        (folder / "chrome.dll").write_bytes(b"x" * len(self.payload))
+        self.assertFalse(assets._ready(browsers, "pinned", ["chromium-123/chrome-win64/chrome.exe"]))
+        with self.assertRaisesRegex(RuntimeError, "does not match its verified archive"):
+            native._record_browser_inventory(browsers, "pinned", {"chromium-123": archive})
 
     def test_bad_browser_archive_cannot_reach_installer(self):
         browsers = self.root / "browsers"

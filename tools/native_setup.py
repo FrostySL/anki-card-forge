@@ -5,6 +5,7 @@ import base64
 import csv
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.metadata
 import json
@@ -13,10 +14,12 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import threading
 from urllib.parse import urlsplit
+import zipfile
 
 import runtime_assets
 
@@ -85,7 +88,7 @@ def _browser_identity():
     if digest != manifest["browser"]["specification_sha256"]:
         raise RuntimeError("The installed Playwright browser specification differs from the pinned manifest.")
     archives = ":".join(manifest["assets"][name]["sha256"] for name in manifest["browser"]["assets"])
-    return "playwright-" + importlib.metadata.version("playwright") + ":" + digest + ":" + archives
+    return "playwright-payload-v2-" + importlib.metadata.version("playwright") + ":" + digest + ":" + archives
 
 
 def _launch_browser(env):
@@ -95,14 +98,37 @@ def _launch_browser(env):
     return _capture([sys.executable, "-c", code], env)
 
 
-def _record_browser_inventory(directory, identity):
+def _record_browser_inventory(directory, identity, archives):
+    """Verify every installed archive payload before any browser launch.
+
+    Chromium creates debug.log on some fresh Windows hosts. Its contents and
+    Playwright's generated bookkeeping are runtime state, not archive payloads;
+    enumerating the pinned ZIP members keeps every shipped DLL/data file checked
+    without treating those generated files as immutable installation files.
+    """
     directory = Path(directory).resolve()
     files = {}
-    for path in directory.rglob("*"):
-        if path.is_symlink():
-            raise RuntimeError(f"Unexpected browser runtime symlink: {path}")
-        if path.is_file() and path.name not in (".asset.json", ".asset.json.part"):
-            files[path.relative_to(directory).as_posix()] = runtime_assets.sha256_file(path)
+    for installed_folder, archive in archives.items():
+        destination = runtime_assets.archive_target(directory, installed_folder)
+        with zipfile.ZipFile(archive) as package:
+            for member in package.infolist():
+                path = runtime_assets.archive_target(destination, member.filename)
+                if stat.S_ISLNK(member.external_attr >> 16):
+                    raise RuntimeError(f"Unexpected browser archive symlink: {member.filename}")
+                if member.is_dir():
+                    continue
+                if not path.is_file() or path.stat().st_size != member.file_size:
+                    raise RuntimeError(f"Installed browser payload is missing or damaged: {path}")
+                digest = hashlib.sha256()
+                with package.open(member) as source:
+                    while block := source.read(1024 * 1024):
+                        digest.update(block)
+                expected = digest.hexdigest()
+                if runtime_assets.sha256_file(path) != expected:
+                    raise RuntimeError(f"Installed browser payload does not match its verified archive: {path}")
+                files[path.relative_to(directory).as_posix()] = expected
+    if not files:
+        raise RuntimeError("The verified browser archives contain no runtime payloads.")
     part = directory / ".asset.json.part"
     part.write_text(json.dumps({"schema": 1, "identity": identity, "files": files}) + "\n", encoding="utf-8")
     os.replace(part, directory / ".asset.json")
@@ -163,11 +189,18 @@ def _ensure_browser(env, *, offline, log):
     manifest = runtime_assets.load_manifest()
     cache = ROOT / ".forge" / "cache" / "downloads"
     files = {}
+    archives = {}
+    versions = manifest["browser"]
+    revisions = {"chromium": versions["chromium_revision"],
+                 "chromium_headless_shell": versions["chromium_revision"],
+                 "ffmpeg": versions["ffmpeg_revision"], "winldd": versions["winldd_revision"]}
     # Every download is complete and matches the committed SHA-256 before the
     # installer runs or any executable from the archive can be launched.
     for name in manifest["browser"]["assets"]:
         asset = manifest["assets"][name]
-        files[asset["installer_path"]] = runtime_assets.fetch_asset(asset, cache, offline=offline)
+        archive = runtime_assets.fetch_asset(asset, cache, offline=offline)
+        files[asset["installer_path"]] = archive
+        archives[f"{name}-{revisions[name]}"] = archive
     arguments = [sys.executable, "-m", "playwright", "install", "chromium"]
     if executable.exists():
         arguments.insert(-1, "--force")
@@ -179,8 +212,8 @@ def _ensure_browser(env, *, offline, log):
         install_env["NO_PROXY"] = "127.0.0.1,localhost"
         install_env["no_proxy"] = "127.0.0.1,localhost"
         _run(arguments, install_env, log)
+    _record_browser_inventory(directory, identity, archives)
     _launch_browser(env)
-    _record_browser_inventory(directory, identity)
 
 
 def _run(arguments, env, log):
@@ -362,7 +395,7 @@ def diagnose(root=ROOT, *, require_state=True):
             report["versions"]["chromium"] = _launch_browser(env)
             relative = browser.relative_to(Path(env["PLAYWRIGHT_BROWSERS_PATH"])).as_posix()
             if not runtime_assets._ready(Path(env["PLAYWRIGHT_BROWSERS_PATH"]), _browser_identity(), [relative]):
-                issues.append("Chromium's installed file inventory is incomplete or changed; rerun setup online to repair it.")
+                issues.append("Chromium's installed file inventory is incomplete or changed; rerun setup to repair it.")
     except (OSError, RuntimeError, subprocess.TimeoutExpired, IndexError) as error:
         issues.append(f"Chromium check: {error}")
     if not runtime_assets._ready(Path(env["ACF_MATHJAX_DIR"]).parent, manifest["assets"]["mathjax"]["sha256"],
