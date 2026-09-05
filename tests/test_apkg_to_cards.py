@@ -328,11 +328,16 @@ class TestMedia(unittest.TestCase):
                 os.chdir(cwd)
 
     def test_more_media_is_rewritten(self):
+        cwd = os.getcwd()
         with tempfile.TemporaryDirectory() as directory:
-            media = os.path.join(directory, "figure.png")
-            cards = {"T": [{"type": "typein", "more": '<img src="figure.png">'}]}
-            self.assertEqual(a2c.rewrite_media_srcs(cards, {"figure.png": media}), 1)
-            self.assertIn(os.path.relpath(media).replace(os.sep, "/"), cards["T"][0]["more"])
+            os.chdir(directory)
+            try:
+                media = os.path.abspath(os.path.join("decoded", "media", "figure.png"))
+                cards = {"T": [{"type": "typein", "more": '<img src="figure.png">'}]}
+                self.assertEqual(a2c.rewrite_media_srcs(cards, {"figure.png": media}), 1)
+                self.assertEqual(cards["T"][0]["more"], '<img src="decoded/media/figure.png">')
+            finally:
+                os.chdir(cwd)
 
     def test_valid_image_attribute_variants_are_rewritten_without_changing_other_html(self):
         variants = ('<img src = "figure.png">', "<img SRC='figure.png'>", '<img src=figure.png>')

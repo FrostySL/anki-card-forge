@@ -22,7 +22,9 @@ class WindowsBootstrap(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="acf-bootstrap-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "Anki Test ä"
+        # Hosted Windows TEMP may use an 8.3 alias (RUNNER~1), while
+        # PowerShell and the real setup state use the resolved long path.
+        self.root = Path(self.temporary.name).resolve() / "Anki Test ä"
         (self.root / "tools").mkdir(parents=True)
         for name in ("forge.cmd", "forge.ps1", "tools/bootstrap.ps1", "tools/native_process.ps1", "tools/runtime-manifest.json"):
             shutil.copyfile(ROOT / name, self.root / name)
