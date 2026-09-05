@@ -92,11 +92,13 @@ Sync remains a separate, explicit action after checking the imported deck.
 ## Commands
 
 Export decoding preserves basic, reversed basic, cloze and type-in cards,
-including their GUIDs and media. The repository's image-occlusion notes are
-currently skipped by the decoder with a warning; do not use export → decode →
-rebuild for learned image-occlusion decks. Their normal build, preview and
-validation paths remain available. A mixed export must be checked for skipped
-notes before any rework import or prune.
+including their GUIDs and media. The decoder CLI refuses incomplete conversion
+before writing any `cards.json` if image-occlusion notes or unsupported field/deck
+layouts would be lost. Keep the original `.apkg` and edit unsupported notes in
+Anki or through `update-note`, preserving their note type. Image-occlusion build,
+preview and validation remain available. Only `mirror` can produce a partial
+JSON index with warnings; that index is not a complete rebuild input, while
+the mirrored `.apkg` remains the complete backup.
 
 ```bash
 python3 tools/anki_connect.py ping                          # connectivity check

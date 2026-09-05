@@ -139,8 +139,12 @@ Ein echter Anki-Test verwendet einen eindeutig benannten synthetischen Stapel
 im Profil `test`, lernt Karten und prüft Export → Decode → Änderung → Rebuild →
 Import mit Backup. GUIDs, Notiztypen, Karten-IDs, Cloze-Zuordnungen, Lernstand und
 Review-Historie werden verglichen; es erfolgt kein Sync. Die Rückkonvertierung
-überspringt derzeit Image-Occlusion-Notizen. Der Rework-Test verwendet deshalb
-nur rückkonvertierbare Typen; Occlusion wird separat gebaut und dargestellt.
+über die CLI bricht vor der JSON-Ausgabe ab, wenn Image-Occlusion-Notizen oder
+nicht unterstützte Feld-/Stapelzuordnungen verloren gingen. Nur `mirror` kann
+einen partiellen JSON-Index mit Warnungen erzeugen; dieser ist keine vollständige
+Grundlage für einen Rebuild. Die ursprüngliche `.apkg` bleibt die vollständige
+Sicherung. Der Rework-Test verwendet deshalb nur rückkonvertierbare Typen;
+Occlusion wird separat gebaut und dargestellt.
 
 Ein erfolgreicher lokaler Lauf auf einem eingerichteten Entwicklungsrechner
 ersetzt die Sandbox-Abnahme nicht. Tatsächlich ausgeführte Prüfungen und noch

@@ -168,13 +168,19 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
 
 - **`decks`**: lists all deck names — use it instead of guessing the exact
   `::`-hierarchy for `export`/`mirror`.
-- **`push --dry-run`**: shows what a push WOULD do (N new / M updated via GUID
-  diff against the fresh backup, plus the exact `--prune` deletion list) without
-  importing. Use it before every prune and whenever unsure. A real `push`
-  prints the same new/updated report after importing.
-- **`restore [--list] [<timestamp>]`**: pushes a backup snapshot from
-  `decks/_anki-backups/` back (default: the newest). The restore itself backs
-  up first — it is undoable.
+- **`push --dry-run`**: compares package GUIDs with the fresh backup and reports
+  new notes, matching existing GUIDs and the exact `--prune` deletion list,
+  without importing. Use it before every prune and whenever unsure. A real
+  `push` reports the same GUID counts after importing; matches do not confirm
+  updates, because Anki can skip older/equal versions or note-type conflicts.
+- **`restore [--list] [<timestamp>]`**: restores content from a snapshot in
+  `decks/_anki-backups/` (default: the newest), after taking a fresh backup.
+  It forces old content to import and verifies fields, tags and card ordinals,
+  plus unchanged scheduling and review history for existing cards. Missing
+  notes return with their saved scheduling. Changed note types, field layouts
+  or card ordinals are refused before importing. Notes added since the snapshot
+  remain; deck placement and note-type styling are not rolled back. See
+  [Backups & restore](ANKICONNECT.md#backups--restore) for details.
 - **`mirror`** (`python3 tools/anki_connect.py mirror [deck …]`): snapshots all
   top-level decks (or the named ones) from the running Anki into
   `decks/_anki-mirror/` — per deck the `.apkg` **with scheduling** plus decoded
@@ -205,10 +211,13 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
   Destructive AnkiConnect actions (deleteDecks, deleteNotes, …) are locked out —
   never delete anything in a user's collection through this tool. Do **not**
   set `ANKICONNECT_ALLOW_UNSAFE=1` on your own initiative.
-- **Auto-backup before push:** an import OVERWRITES fields of same-GUID notes,
-  so `push` first exports every affected existing deck (with scheduling) to
-  `decks/_anki-backups/<timestamp>/` (gitignored, newest 10 kept). Restore =
-  push the backup `.apkg`. Only use `--no-backup` if the user explicitly asks.
+- **Auto-backup before push:** an import can overwrite fields of same-GUID
+  notes, so `push` first exports existing destination decks and the current
+  decks of matching GUIDs, including moved notes and cards split across decks.
+  Backups include scheduling and live in `decks/_anki-backups/<timestamp>/`
+  (gitignored; newest 10 complete snapshots kept). Use the dedicated `restore`
+  command for old content; a plain push of an older backup can be skipped by
+  Anki. Only use `--no-backup` if the user explicitly asks.
 - **Removing cards = `push --prune`, only on request:** a plain import never
   deletes (Anki merges — even an empty same-name deck deletes nothing), so
   cards removed in a rework linger in Anki. Use `--prune` (or
