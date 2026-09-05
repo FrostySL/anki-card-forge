@@ -16,7 +16,9 @@ class TestRuntimeAssetRepair(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="acf-asset-repair-")
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # Resolve Windows TEMP's possible 8.3 alias before path comparisons or
+        # injected rename failures compare against production's resolved paths.
+        self.root = Path(self.temp.name).resolve()
 
     def fixture(self):
         cache = self.root / "cache"

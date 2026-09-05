@@ -22,7 +22,9 @@ class RuntimeAssets(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="acf-assets-")
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        # Windows TEMP may use an 8.3 alias; production helpers return resolved
+        # paths, so comparisons must use the same filesystem identity.
+        self.root = Path(self.temporary.name).resolve()
         self.payload = b"verified runtime fixture\n"
         self.asset = {"filename": "fixture.zip", "url": "https://example.invalid/fixture.zip",
                       "sha256": hashlib.sha256(self.payload).hexdigest()}

@@ -1,5 +1,6 @@
 """Windows filename edge cases must not silently overwrite exported content."""
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -47,8 +48,16 @@ class TestPortableFilenames(unittest.TestCase):
                 self.assertEqual(Path(path).read_bytes(), name.encode())
             self.assertEqual(Path(mapping["normal image.png"]).name, "normal image.png")
             deck = {"Test": [{"back": '<img src="CON.png"> <img src="fig.png">'}]}
-            self.assertEqual(decode.rewrite_media_srcs(deck, mapping), 2)
+            # Decoded media belongs to the current project. The OS temporary
+            # directory can live on another Windows drive than the checkout.
+            previous_cwd = os.getcwd()
+            try:
+                os.chdir(directory)
+                self.assertEqual(decode.rewrite_media_srcs(deck, mapping), 2)
+            finally:
+                os.chdir(previous_cwd)
             self.assertIn("_CON.png", deck["Test"][0]["back"])
+            self.assertIn("decoded/media/", deck["Test"][0]["back"])
             self.assertNotIn("\\", deck["Test"][0]["back"])
 
     def test_runtime_directories_cannot_be_published(self):
