@@ -3,7 +3,8 @@
 param(
     [Parameter(Mandatory = $true)][string]$ReportDir,
     [switch]$RequireNonAdmin,
-    [switch]$NetworkIsolationHandshake
+    [switch]$NetworkIsolationHandshake,
+    [string]$CompletionNonce = ''
 )
 $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -17,6 +18,27 @@ $stopwatch = [Diagnostics.Stopwatch]::StartNew()
 $phaseTimes = @{}
 $cachedDownloadBytes = $null
 $succeeded = $false
+$driverExitCode = 1
+$failureText = $null
+
+function Invoke-LoggedNative([string]$Executable, [string[]]$NativeArguments, [string]$LogFile) {
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) { throw "Missing executable: $Executable" }
+    # Transcript alone omits native stdout/stderr in a hidden PowerShell 5
+    # process. Consume both streams explicitly while retaining the native code.
+    $priorPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Executable @NativeArguments 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            [IO.File]::AppendAllText($LogFile, $line + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+            Write-Host $line
+        }
+        $nativeExitCode = $LASTEXITCODE
+        if ($null -eq $nativeExitCode) { throw 'Native command did not supply an exit code.' }
+    } finally { $ErrorActionPreference = $priorPreference }
+    return $nativeExitCode
+}
+
 Start-Transcript -Path (Join-Path $reportPath 'acceptance.log') -Force | Out-Null
 try {
     Set-Location $projectDir
@@ -59,14 +81,16 @@ try {
     }
 
     $phase = [Diagnostics.Stopwatch]::StartNew()
-    & (Join-Path $projectDir 'forge.cmd') setup
-    if ($LASTEXITCODE -ne 0) { throw "Cold setup failed: $LASTEXITCODE" }
+    $nativeExit = Invoke-LoggedNative (Join-Path $projectDir 'forge.cmd') @('setup') (Join-Path $reportPath 'cold-setup.log')
+    if ($nativeExit -ne 0) { throw "Cold setup failed: $nativeExit" }
     $phaseTimes.cold_setup_seconds = $phase.Elapsed.TotalSeconds
     $python = Join-Path $projectDir '.venv\Scripts\python.exe'
-    & $python (Join-Path $PSScriptRoot 'check_native_environment.py') --output (Join-Path $reportPath 'provenance.json')
-    if ($LASTEXITCODE -ne 0) { throw 'Managed runtime provenance check failed.' }
-    & $python -m unittest discover -s (Join-Path $projectDir 'tests') -p 'test_*.py' -v
-    if ($LASTEXITCODE -ne 0) { throw 'Native Python tests failed.' }
+    $nativeExit = Invoke-LoggedNative $python @((Join-Path $PSScriptRoot 'check_native_environment.py'),
+        '--output', (Join-Path $reportPath 'provenance.json')) (Join-Path $reportPath 'provenance.log')
+    if ($nativeExit -ne 0) { throw "Managed runtime provenance check failed: $nativeExit" }
+    $nativeExit = Invoke-LoggedNative $python @('-m', 'unittest', 'discover', '-s',
+        (Join-Path $projectDir 'tests'), '-p', 'test_*.py', '-v') (Join-Path $reportPath 'unit-tests.log')
+    if ($nativeExit -ne 0) { throw "Native Python tests failed: $nativeExit" }
 
     # In Sandbox, its privileged guest coordinator disables the guest NICs.
     # Hosted CI uses downloader offline flags; that is a narrower guarantee.
@@ -89,22 +113,38 @@ try {
     # Setup itself runs build and visual integration on each invocation.
     $phase.Restart()
     $env:UV_OFFLINE = '1'
-    & (Join-Path $projectDir 'forge.cmd') setup --offline
-    if ($LASTEXITCODE -ne 0) { throw "Offline repeat setup failed: $LASTEXITCODE" }
+    $nativeExit = Invoke-LoggedNative (Join-Path $projectDir 'forge.cmd') @('setup', '--offline') (Join-Path $reportPath 'offline-setup.log')
+    if ($nativeExit -ne 0) { throw "Offline repeat setup failed: $nativeExit" }
     $phaseTimes.offline_setup_seconds = $phase.Elapsed.TotalSeconds
-    & $python (Join-Path $projectDir 'tools\forge.py') --backend native doctor --json |
-        Set-Content -LiteralPath (Join-Path $reportPath 'doctor.json') -Encoding UTF8
-    if ($LASTEXITCODE -ne 0) { throw 'Final doctor failed.' }
+    $nativeExit = Invoke-LoggedNative $python @((Join-Path $projectDir 'tools\forge.py'),
+        '--backend', 'native', 'doctor', '--json') (Join-Path $reportPath 'doctor.json')
+    if ($nativeExit -ne 0) { throw "Final doctor failed: $nativeExit" }
     Copy-Item -LiteralPath (Join-Path $projectDir '.forge\setup-state.json') -Destination $reportPath
     $cachedDownloadBytes = (Get-ChildItem -LiteralPath (Join-Path $projectDir '.forge\cache') -File -Recurse |
         Measure-Object -Property Length -Sum).Sum
     $succeeded = $true
+    $driverExitCode = 0
+}
+catch {
+    $failureText = $_ | Out-String
+    $failureText | Set-Content -LiteralPath (Join-Path $reportPath 'driver-error.txt') -Encoding UTF8
+    Write-Host $failureText
 }
 finally {
     @{ success = $succeeded; elapsed_seconds = $stopwatch.Elapsed.TotalSeconds; phases = $phaseTimes;
-       cache_bytes = $cachedDownloadBytes; network_isolation_requested = [bool]$NetworkIsolationHandshake } |
+       cache_bytes = $cachedDownloadBytes; network_isolation_requested = [bool]$NetworkIsolationHandshake;
+       exit_code = $driverExitCode; error = $failureText } |
         ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $reportPath 'result.json') -Encoding UTF8
     if (-not $succeeded) {
+        $runtimeLogs = Join-Path $projectDir '.forge\logs'
+        if ((Test-Path -LiteralPath $runtimeLogs) -and
+            -not ((Get-Item -LiteralPath $runtimeLogs).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            $logDestination = Join-Path $reportPath 'runtime-logs'
+            New-Item -ItemType Directory -Path $logDestination -Force | Out-Null
+            Get-ChildItem -LiteralPath $runtimeLogs -File -Filter '*.log' |
+                Where-Object { -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) } |
+                ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $logDestination }
+        }
         foreach ($folder in @('decks', 'extracted')) {
             $parent = Join-Path $projectDir $folder
             if (Test-Path -LiteralPath $parent) {
@@ -128,3 +168,12 @@ finally {
     [Console]::OutputEncoding = $consoleEncodingBefore
     Set-Location $oldLocation
 }
+# Publish only after transcript closure, diagnostic copying and environment
+# restoration. A killed/crashed driver has no trustworthy completion marker.
+$completionTemp = Join-Path $reportPath 'driver-complete.json.tmp'
+@{ completed = $true; success = $succeeded; exit_code = $driverExitCode;
+   process_id = $PID; nonce = $CompletionNonce } | ConvertTo-Json |
+    Set-Content -LiteralPath $completionTemp -Encoding UTF8
+Move-Item -LiteralPath $completionTemp -Destination (Join-Path $reportPath 'driver-complete.json')
+if ($driverExitCode -ne 0) { throw $failureText }
+exit $driverExitCode

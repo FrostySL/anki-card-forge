@@ -89,7 +89,8 @@ class WindowsBootstrap(unittest.TestCase):
         shutil.copyfile(ROOT / "tests/integration/windows_acceptance.ps1", driver)
         # Stop immediately after preflight; these tests must never install tools.
         (self.root / "forge.cmd").write_bytes(
-            b'@echo off\r\necho called>"%~dp0setup-called.txt"\r\nexit /b 23\r\n')
+            b'@echo off\r\necho called>"%~dp0setup-called.txt"\r\n'
+            b'echo native-stdout\r\necho native-stderr 1>&2\r\nexit /b 23\r\n')
         reports = Path(self.temporary.name) / "reports"
         return driver, reports
 
@@ -98,15 +99,89 @@ class WindowsBootstrap(unittest.TestCase):
         self.env["FORGE_DUPLICATE"] = "first"
         self.env["forge_duplicate"] = "second"
         result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                                 str(driver), "-ReportDir", str(reports)], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, encoding="utf-8", timeout=30)
+                                 str(driver), "-ReportDir", str(reports), "-CompletionNonce", "test-run"],
+                                cwd=self.root, env=self.env, creationflags=subprocess.CREATE_NO_WINDOW,
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("Cold setup failed: 23", result.stdout + result.stderr)
         self.assertTrue((self.root / "setup-called.txt").is_file())
         before = json.loads((reports / "before.json").read_text(encoding="utf-8-sig"))
         self.assertEqual(before["path"], str(POWERSHELL.parent))
         self.assertTrue(all(not commands for commands in before["tools"].values()), before)
+        native_log = (reports / "cold-setup.log").read_text(encoding="utf-8")
+        self.assertIn("native-stdout", native_log)
+        self.assertIn("native-stderr", native_log)
+        transcript = (reports / "acceptance.log").read_text(encoding="utf-8-sig")
+        self.assertIn("native-stdout", transcript)
+        self.assertIn("native-stderr", transcript)
+        completion = json.loads((reports / "driver-complete.json").read_text(encoding="utf-8-sig"))
+        self.assertTrue(completion["completed"])
+        self.assertEqual(completion["nonce"], "test-run")
+        self.assertEqual(completion["exit_code"], 1)
+        self.assertGreater(completion["process_id"], 0)
+        self.assertIn("Cold setup failed: 23", (reports / "driver-error.txt").read_text(encoding="utf-8-sig"))
         self.assert_clean()
+
+    def test_acceptance_failure_retains_only_runtime_logs(self):
+        driver, reports = self.acceptance_fixture()
+        (self.root / "forge.cmd").write_bytes(
+            b'@echo off\r\nmkdir "%~dp0.forge\\logs"\r\nmkdir "%~dp0.forge\\cache"\r\n'
+            b'echo runtime-failure>"%~dp0.forge\\logs\\setup-test.log"\r\n'
+            b'echo cache-payload>"%~dp0.forge\\cache\\download.zip"\r\nexit /b 23\r\n')
+        result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                                 str(driver), "-ReportDir", str(reports)], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("runtime-failure", (reports / "runtime-logs/setup-test.log").read_text())
+        self.assertFalse(list(reports.rglob("download.zip")))
+        self.assertFalse((reports / ".forge").exists())
+
+    def test_sandbox_completion_requires_matching_process_and_success_evidence(self):
+        shutil.copyfile(ROOT / "tests/integration/sandbox_run.ps1", self.root / "sandbox_run.ps1")
+        script = self.root / "check-completion.ps1"
+        script.write_text("""
+$ErrorActionPreference = 'Stop'
+$tokens = $null; $errors = $null
+$tree = [Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PSScriptRoot 'sandbox_run.ps1'), [ref]$tokens, [ref]$errors)
+$definition = $tree.Find({ param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Confirm-AcceptanceCompletion'
+}, $true)
+Invoke-Expression $definition.Extent.Text
+$reports = Join-Path $PSScriptRoot 'reports'
+New-Item -ItemType Directory -Path $reports | Out-Null
+function Expect-Rejection([string]$pattern) {
+    try { Confirm-AcceptanceCompletion $reports 'expected-run' 42; throw 'Expected rejection' }
+    catch { if ($_.Exception.Message -notlike $pattern) { throw } }
+}
+Expect-Rejection '*without complete result evidence*'
+$marker = @{ completed = $true; success = $true; exit_code = 0; process_id = 42; nonce = 'wrong-run' }
+$result = @{ success = $true; exit_code = 0; error = $null }
+function Save-Evidence {
+    $marker | ConvertTo-Json | Set-Content (Join-Path $reports 'driver-complete.json')
+    $result | ConvertTo-Json | Set-Content (Join-Path $reports 'result.json')
+}
+Save-Evidence
+Expect-Rejection '*does not match*'
+$marker.nonce = 'expected-run'; $marker.process_id = 99
+Save-Evidence
+Expect-Rejection '*does not match*'
+$marker.process_id = 42; $marker.success = $false; $marker.exit_code = 1
+$result.success = $false; $result.exit_code = 1; $result.error = 'specific native failure'
+Save-Evidence
+Expect-Rejection '*failed (exit 1): specific native failure*'
+$marker.success = $true; $marker.exit_code = 0
+$result.success = $true; $result.exit_code = 0; $result.error = $null
+Save-Evidence
+Confirm-AcceptanceCompletion $reports 'expected-run' 42
+Write-Output 'PASS: completion evidence'
+""", encoding="utf-8-sig")
+        result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+                                cwd=self.root, env=self.env, capture_output=True, text=True,
+                                encoding="utf-8", timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS: completion evidence", result.stdout)
 
     def test_acceptance_still_rejects_host_command_and_retains_resolution(self):
         driver, reports = self.acceptance_fixture()

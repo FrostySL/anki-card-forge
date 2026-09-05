@@ -35,6 +35,24 @@ function Copy-ReportTree([string]$source, [string]$destination) {
     }
 }
 
+function Confirm-AcceptanceCompletion([string]$Directory, [string]$ExpectedNonce, [int]$ExpectedProcessId) {
+    $completionPath = Join-Path $Directory 'driver-complete.json'
+    $resultPath = Join-Path $Directory 'result.json'
+    if (-not (Test-Path -LiteralPath $completionPath) -or -not (Test-Path -LiteralPath $resultPath)) {
+        throw 'Standard-user acceptance ended without complete result evidence. Inspect the captured logs.'
+    }
+    $completion = Get-Content -LiteralPath $completionPath -Raw | ConvertFrom-Json
+    $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+    if ($completion.completed -ne $true -or $completion.nonce -ne $ExpectedNonce -or
+        $completion.process_id -ne $ExpectedProcessId -or $null -eq $completion.exit_code -or
+        $completion.exit_code -ne $result.exit_code -or $completion.success -ne $result.success) {
+        throw 'Standard-user acceptance completion does not match this process and its result.'
+    }
+    if ($completion.exit_code -ne 0 -or $result.success -ne $true) {
+        throw "Standard-user acceptance failed (exit $($completion.exit_code)): $($result.error)"
+    }
+}
+
 try {
     $secret = ConvertTo-SecureString ('ACF!' + [guid]::NewGuid().ToString('N') + 'a1') -AsPlainText -Force
     $user = New-LocalUser -Name $userName -Password $secret -AccountNeverExpires -PasswordNeverExpires
@@ -50,11 +68,16 @@ try {
     # the narrow host report share after the test process exits.
     $guestReports = Join-Path $guestRoot 'decks\_windows-reports_rebuild'
     $credential = [Management.Automation.PSCredential]::new("$env:COMPUTERNAME\$userName", $secret)
+    $completionNonce = [guid]::NewGuid().ToString('N')
     $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' +
         (Join-Path $guestRoot 'tests\integration\windows_acceptance.ps1') +
-        '" -ReportDir "' + $guestReports + '" -RequireNonAdmin -NetworkIsolationHandshake'
+        '" -ReportDir "' + $guestReports + '" -RequireNonAdmin -NetworkIsolationHandshake -CompletionNonce ' + $completionNonce
     $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
         -ArgumentList $arguments -Credential $credential -LoadUserProfile -WindowStyle Hidden -PassThru
+    # Retain the original process handle while it is alive. Some PowerShell 5
+    # Start-Process/Credential combinations still return a null ExitCode later,
+    # so a process-bound completion record remains the required evidence.
+    $retainedProcessHandle = $process.Handle
     $networkDisabled = $false
     $deadline = [DateTime]::UtcNow.AddMinutes(45)
     while (-not $process.HasExited) {
@@ -77,7 +100,11 @@ try {
         $process.Refresh()
     }
     $process.WaitForExit()
-    if ($process.ExitCode -ne 0) { throw "Standard-user acceptance failed: $($process.ExitCode)" }
+    Confirm-AcceptanceCompletion $guestReports $completionNonce $process.Id
+    if (-not $networkDisabled) { throw 'The acceptance process never completed guest network isolation.' }
+    if ($null -ne $process.ExitCode -and $process.ExitCode -ne 0) {
+        throw "Standard-user process exited unexpectedly: $($process.ExitCode)"
+    }
 }
 catch {
     $failure = $_
@@ -94,7 +121,9 @@ finally {
     if ($guestReports -and (Test-Path -LiteralPath $guestReports)) {
         $reportItem = Get-Item -LiteralPath $guestReports -Force
         if (-not ($reportItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-            $allowed = @('acceptance.log', 'before.json', 'provenance.json', 'doctor.json',
+            $allowed = @('acceptance.log', 'cold-setup.log', 'offline-setup.log', 'unit-tests.log',
+                'provenance.log', 'driver-error.txt', 'driver-complete.json', 'runtime-logs',
+                'before.json', 'provenance.json', 'doctor.json',
                 'setup-state.json', 'result.json', 'request-network-offline.json',
                 'network-isolated.json', 'decks', 'extracted')
             Get-ChildItem -LiteralPath $guestReports -Force |
