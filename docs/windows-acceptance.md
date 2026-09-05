@@ -19,8 +19,28 @@ synthetic; personal collection exports and diagnostic files remain local.
 | Native Windows Python suite | Passed: 259 tests, five platform-specific skips; includes duplicate-case environment and Unicode OCR regressions |
 | Tesseract Unicode paths | Passed: relative model paths and streamed label OCR with Unicode source/TEMP; three expected labels retained |
 | Linux Python, shell and Docker integration | Passed in GitHub CI, including real Anki, PDF/OCR and formula previews |
-| Clean source archive on GitHub Windows CI | Pending candidate CI run |
+| Clean source archive on GitHub Windows CI | Passed: cold bootstrap, provenance, full tests, offline repeat and separate Git guards |
 | Clean Windows Sandbox, standard user, guest network disabled on repeat | Feature enabled; pending host restart and candidate run |
+
+## Hosted Windows CI
+
+The [successful CI run](https://github.com/FrostySL/anki-card-forge/actions/runs/33973857518)
+tested implementation revision `0b96ed4`. A source-only archive in
+`D:\a\_temp\Anki Test ä` started with no Python, uv, Docker, Git or Tesseract
+discoverable on PATH and no project caches. Cold setup took **60.6 seconds**;
+the offline repeat took **31.9 seconds**. The complete acceptance driver took
+107.3 seconds, with no manual intervention. The resulting dependency cache was
+713,277,204 bytes; these hosted-run timings depend on the runner and network.
+
+Provenance confirmed the interpreter, all eight checked modules and the three
+loaded Microsoft C++ runtime DLLs came from `.forge/` or `.venv/`. Both setup
+passes ran the complete synthetic build and visual pipeline. The source-only
+suite passed; Git-specific tests ran separately with Git available.
+
+The hosted process was elevated and its offline check used downloader flags.
+It does not replace the pending Sandbox test as a standard user with the guest
+network adapters disabled. Current-revision status is visible in
+[PR #4's checks](https://github.com/FrostySL/anki-card-forge/pull/4/checks).
 
 ## Live Anki profile test
 
