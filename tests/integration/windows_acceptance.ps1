@@ -9,8 +9,7 @@ $ErrorActionPreference = 'Stop'
 $projectDir = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $reportPath = [IO.Path]::GetFullPath($ReportDir)
 New-Item -ItemType Directory -Force -Path $reportPath | Out-Null
-$envBefore = @{}
-Get-ChildItem Env: | ForEach-Object { $envBefore[$_.Name] = $_.Value }
+$envBefore = [Environment]::GetEnvironmentVariables()
 $oldLocation = Get-Location
 $outputEncodingBefore = $OutputEncoding
 $consoleEncodingBefore = [Console]::OutputEncoding
@@ -31,23 +30,33 @@ try {
     if ($RequireNonAdmin -and $isAdmin) { throw 'The actual acceptance process must be a standard user.' }
 
     # Process-local isolation: never change the user's persistent environment.
-    Get-ChildItem Env: | Where-Object {
-        $_.Name -match '^(UV_|PYTHON|PLAYWRIGHT_|ACF_|PIP_|VIRTUAL_ENV$|TESSDATA_PREFIX$|TESSERACT_)'
-    } | ForEach-Object { Remove-Item -LiteralPath ('Env:' + $_.Name) }
-    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+    foreach ($variableName in @([Environment]::GetEnvironmentVariables().Keys)) {
+        if ($variableName -match '^(UV_|PYTHON|PLAYWRIGHT_|ACF_|PIP_|VIRTUAL_ENV$|TESSDATA_PREFIX$|TESSERACT_)') {
+            [Environment]::SetEnvironmentVariable($variableName, $null, 'Process')
+        }
+    }
+    # GitHub's Windows image installs Docker directly into System32. Only
+    # expose inbox PowerShell; the launcher addresses tar.exe by absolute path.
+    $env:PATH = "$env:SystemRoot\System32\WindowsPowerShell\v1.0"
     $env:PYTHONUTF8 = '1'
     $env:PYTHONIOENCODING = 'utf-8'
     $OutputEncoding = [Text.UTF8Encoding]::new($false)
     [Console]::OutputEncoding = $OutputEncoding
     $preflight = @{}
+    $unexpected = @()
     foreach ($name in @('python', 'python3', 'py', 'uv', 'docker', 'git', 'tesseract')) {
-        $found = Get-Command $name -ErrorAction SilentlyContinue
-        $preflight[$name] = @($found | ForEach-Object Source)
-        if ($found) { throw "Cold bootstrap unexpectedly resolves host tool $name." }
+        $found = @(Get-Command $name -All -ErrorAction SilentlyContinue)
+        $preflight[$name] = @($found | ForEach-Object {
+            @{ command_type = $_.CommandType.ToString(); source = $_.Source; path = $_.Path }
+        })
+        if ($found) { $unexpected += $name }
     }
     @{ project = $projectDir; elevated = $isAdmin; tools = $preflight;
-       windows = [Environment]::OSVersion.VersionString } |
-        ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $reportPath 'before.json') -Encoding UTF8
+       path = $env:PATH; windows = [Environment]::OSVersion.VersionString } |
+        ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $reportPath 'before.json') -Encoding UTF8
+    if ($unexpected) {
+        throw ('Cold bootstrap unexpectedly resolves host tools: ' + ($unexpected -join ', ') + '. See before.json for command paths.')
+    }
 
     $phase = [Diagnostics.Stopwatch]::StartNew()
     & (Join-Path $projectDir 'forge.cmd') setup
@@ -107,9 +116,14 @@ finally {
         }
     }
     Stop-Transcript | Out-Null
-    Get-ChildItem Env: | Where-Object { -not $envBefore.ContainsKey($_.Name) } |
-        ForEach-Object { Remove-Item -LiteralPath ('Env:' + $_.Name) }
-    foreach ($name in $envBefore.Keys) { Set-Item -LiteralPath ('Env:' + $name) -Value $envBefore[$name] }
+    foreach ($variableName in @([Environment]::GetEnvironmentVariables().Keys)) {
+        if (-not $envBefore.ContainsKey($variableName)) {
+            [Environment]::SetEnvironmentVariable($variableName, $null, 'Process')
+        }
+    }
+    foreach ($variableName in $envBefore.Keys) {
+        [Environment]::SetEnvironmentVariable($variableName, $envBefore[$variableName], 'Process')
+    }
     $OutputEncoding = $outputEncodingBefore
     [Console]::OutputEncoding = $consoleEncodingBefore
     Set-Location $oldLocation

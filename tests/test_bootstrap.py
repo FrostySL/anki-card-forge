@@ -27,7 +27,9 @@ class WindowsBootstrap(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items() if not re.match(
             r"^(UV_|PYTHON|PLAYWRIGHT_|ACF_|PIP_|VIRTUAL_ENV$|TESSDATA_PREFIX$|TESSERACT_|NODE_|npm_)",
             key, re.IGNORECASE)}
-        self.env["PATH"] = os.pathsep.join((str(WINDOWS / "System32"), str(POWERSHELL.parent)))
+        # Hosted Windows places Docker in System32, so that directory must not
+        # enter the child search path. Required inbox tools use absolute paths.
+        self.env["PATH"] = str(POWERSHELL.parent)
         # No project helper or parent interpreter can be discovered by the child.
         for name in ("python", "python3", "py", "uv", "docker", "git", "tesseract"):
             self.assertIsNone(shutil.which(name, path=self.env["PATH"]), name)
@@ -80,6 +82,48 @@ class WindowsBootstrap(unittest.TestCase):
         self.assertFalse((self.root / ".forge/python").exists())
         self.assertFalse((self.root / ".forge/uv").exists())
         self.assertFalse((self.root / ".venv").exists())
+
+    def acceptance_fixture(self):
+        driver = self.root / "tests/integration/windows_acceptance.ps1"
+        driver.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / "tests/integration/windows_acceptance.ps1", driver)
+        # Stop immediately after preflight; these tests must never install tools.
+        (self.root / "forge.cmd").write_bytes(
+            b'@echo off\r\necho called>"%~dp0setup-called.txt"\r\nexit /b 23\r\n')
+        reports = Path(self.temporary.name) / "reports"
+        return driver, reports
+
+    def test_acceptance_preflight_excludes_system32_and_tolerates_case_variant_environment(self):
+        driver, reports = self.acceptance_fixture()
+        self.env["FORGE_DUPLICATE"] = "first"
+        self.env["forge_duplicate"] = "second"
+        result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                                 str(driver), "-ReportDir", str(reports)], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, encoding="utf-8", timeout=30)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("Cold setup failed: 23", result.stdout + result.stderr)
+        self.assertTrue((self.root / "setup-called.txt").is_file())
+        before = json.loads((reports / "before.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(before["path"], str(POWERSHELL.parent))
+        self.assertTrue(all(not commands for commands in before["tools"].values()), before)
+        self.assert_clean()
+
+    def test_acceptance_still_rejects_host_command_and_retains_resolution(self):
+        driver, reports = self.acceptance_fixture()
+        wrapper = self.root / "probe.ps1"
+        wrapper.write_text("function docker { throw 'Host tool must never be called' }\n"
+                           "& (Join-Path $PSScriptRoot 'tests/integration/windows_acceptance.ps1') "
+                           "-ReportDir (Join-Path (Split-Path $PSScriptRoot -Parent) 'reports')\n",
+                           encoding="utf-8-sig")
+        result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(wrapper)],
+                                cwd=self.root, env=self.env, capture_output=True, text=True,
+                                encoding="utf-8", timeout=30)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("unexpectedly resolves host tools: docker", result.stdout + result.stderr)
+        self.assertFalse((self.root / "setup-called.txt").exists())
+        before = json.loads((reports / "before.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(before["tools"]["docker"][0]["command_type"], "Function")
+        self.assert_clean()
 
     def test_child_environment_tolerates_case_variant_inherited_keys(self):
         # Windows process blocks can contain both spellings, e.g. after CMD.
