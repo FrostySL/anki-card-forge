@@ -9,8 +9,8 @@
     },
     {
       "type": "cloze",
-      "text": "The cards in this project are authored by {{c1::Claude}} and packed into an .apkg by the {{c2::genanki}} library.",
-      "extra": "No external LLM call needed.",
+      "text": "The cards in this project are authored by {{c1::your chosen AI assistant}} and packed into an .apkg by the {{c2::genanki}} library.",
+      "extra": "The build tools work with card JSON from any author; they make no model API calls.",
       "tags": ["demo"]
     }
   ]

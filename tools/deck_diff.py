@@ -6,7 +6,7 @@
 <old> and <new> are each: a .cards.json, an .apkg (decoded via apkg_to_cards,
 GUIDs preserved), or a folder (all *.cards.json inside, recursive).
 
-Built for the GUID-preserving rework workflow (CLAUDE.md, "Changing an
+Built for the GUID-preserving rework workflow (AGENTS.md, "Changing an
 existing/learned deck"): before pushing a rebuilt deck, verify that it
 contains exactly the intended changes —
 

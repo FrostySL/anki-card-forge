@@ -403,7 +403,99 @@ class TestExport(unittest.TestCase):
         self.assertEqual(payloads[0]["action"], "exportPackage")
         self.assertEqual(params["deck"], "Topic::Deck")
         self.assertTrue(params["includeSched"])
-        self.assertTrue(os.path.isabs(params["path"]))
+        self.assertEqual(params["path"], os.path.abspath(out))
+
+
+class TestUNCExport(unittest.TestCase):
+    def test_staging_only_for_windows_unc_paths(self):
+        for platform, path, expected in [
+            ("nt", r"\\wsl.localhost\Ubuntu\home\deck.apkg", True),
+            ("nt", r"\\server\share\deck.apkg", True),
+            ("nt", r"C:\Users\test\deck.apkg", False),
+            ("posix", "/home/test/deck.apkg", False),
+            ("posix", r"\\server\share\deck.apkg", False),
+        ]:
+            with self.subTest(platform=platform, path=path):
+                with mock.patch.object(ac, "os") as platform_os:
+                    platform_os.name = platform
+                    self.assertEqual(ac._export_needs_staging(path), expected)
+
+    def test_exports_to_local_temp_then_copies_and_cleans_up(self):
+        payloads = []
+        package = b"fresh exported package"
+
+        def fake(req, timeout=None):
+            payload = json.loads(req.data.decode("utf-8"))
+            payloads.append(payload)
+            with open(payload["params"]["path"], "wb") as fh:
+                fh.write(package)
+            return FakeResponse({"result": True, "error": None})
+
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "deck.apkg")
+            with open(out, "wb") as fh:
+                fh.write(b"stale export")
+            with mock.patch.object(ac, "_export_needs_staging", return_value=True), \
+                    mock.patch.object(ac.urllib.request, "urlopen", fake):
+                ac._export_package("Topic::Deck", out)
+            with open(out, "rb") as fh:
+                self.assertEqual(fh.read(), package)
+            params = payloads[0]["params"]
+            self.assertEqual(payloads[0]["action"], "exportPackage")
+            self.assertEqual(params["deck"], "Topic::Deck")
+            self.assertTrue(params["includeSched"])
+            self.assertNotEqual(params["path"], out)
+            self.assertFalse(params["path"].startswith("\\\\"))
+            self.assertFalse(os.path.exists(os.path.dirname(params["path"])))
+
+    def test_failed_exports_remove_stale_destination_and_temp_files(self):
+        cases = [
+            ("false result", False, None, True),
+            ("API error", None, "collection locked", True),
+            ("missing output", True, None, False),
+        ]
+        for case, result, error, writes_file in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as d:
+                out = os.path.join(d, "deck.apkg")
+                with open(out, "wb") as fh:
+                    fh.write(b"stale export")
+                staged_paths = []
+
+                def fake(req, timeout=None):
+                    payload = json.loads(req.data.decode("utf-8"))
+                    staged_path = payload["params"]["path"]
+                    staged_paths.append(staged_path)
+                    if writes_file:
+                        with open(staged_path, "wb") as fh:
+                            fh.write(b"incomplete export")
+                    return FakeResponse({"result": result, "error": error})
+
+                with mock.patch.object(ac, "_export_needs_staging", return_value=True), \
+                        mock.patch.object(ac.urllib.request, "urlopen", fake):
+                    with self.assertRaises(ac.AnkiConnectError):
+                        ac._export_package("Topic::Deck", out)
+                self.assertFalse(os.path.exists(out))
+                self.assertEqual(len(staged_paths), 1)
+                self.assertFalse(os.path.exists(os.path.dirname(staged_paths[0])))
+
+    def test_failed_copy_removes_partial_destination_and_temp_files(self):
+        fake, payloads = urlopen_mock({"result": True, "error": None})
+
+        def broken_copy(src, dst):
+            with open(dst, "wb") as fh:
+                fh.write(b"partial copy")
+            raise OSError("copy interrupted")
+
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "deck.apkg")
+            with mock.patch.object(ac, "_export_needs_staging", return_value=True), \
+                    mock.patch.object(ac.urllib.request, "urlopen", fake), \
+                    mock.patch.object(ac.shutil, "copy2", broken_copy):
+                with self.assertRaisesRegex(OSError, "copy interrupted"):
+                    ac._export_package("Topic::Deck", out)
+            self.assertFalse(os.path.exists(out))
+            staged_path = payloads[0]["params"]["path"]
+            self.assertFalse(os.path.exists(os.path.dirname(staged_path)))
 
 
 class TestMirror(unittest.TestCase):

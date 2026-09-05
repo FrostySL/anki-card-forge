@@ -52,14 +52,21 @@ for input in "${INPUTS[@]}"; do
   # Figure crops only make sense for PDFs — text sources (mirrored by the
   # extract step) and PDF-less folders are skipped instead of failing.
   if [ -d "$input" ]; then
-    if ls "$input"/*.pdf "$input"/*.PDF >/dev/null 2>&1; then
+    has_pdf=0
+    for candidate in "$input"/*.[pP][dD][fF]; do
+      if [ -f "$candidate" ]; then
+        has_pdf=1
+        break
+      fi
+    done
+    if [ "$has_pdf" -eq 1 ]; then
       "$DIR/figextract.sh" "$input" ${FIG_ARGS[@]+"${FIG_ARGS[@]}"}
     else
       echo "(no PDFs in $input — skipping figure crops)"
     fi
   else
     case "$input" in
-      *.pdf|*.PDF) "$DIR/figextract.sh" "$input" ${FIG_ARGS[@]+"${FIG_ARGS[@]}"} ;;
+      *.[pP][dD][fF]) "$DIR/figextract.sh" "$input" ${FIG_ARGS[@]+"${FIG_ARGS[@]}"} ;;
       *) echo "(not a PDF: $input — skipping figure crops)" ;;
     esac
   fi

@@ -22,7 +22,7 @@ docs/**/*.mkv
 docs/**/*.webm
 
 # Graphify knowledge-graph output (derived, reproducible via `graphify <path>`) —
-# stays local, never committed. See ~/.claude/skills/graphify.
+# stays local, never committed.
 graphify-out/
 
 # Python

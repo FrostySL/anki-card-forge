@@ -12,7 +12,7 @@ Per <name>.md it:
   - annotates the page markers with the figure count: "<!-- p. 21 · 2 fig. -->".
 
 That makes it visible at a glance where images live when building cards. For
-spatial/visual concepts, look at the real PDF page (Read tool, pages="N") or the
+spatial/visual concepts, inspect the original PDF page with a PDF/image viewer or the
 cropped figure and consider an occlusion/image card instead of missing the image.
 
 Idempotent: existing "· N fig." (or legacy "· N Abb.") annotations are removed
@@ -106,7 +106,7 @@ def process(md_path):
             f"# Figures: {os.path.basename(md_path)}",
             "",
             f"{len(idx)} figures (p. = position in the extracted .md). "
-            'To view an image: Read tool on the original PDF with pages="<p>".',
+            'To view an image, open the corresponding figure crop or inspect the original PDF page with a PDF/image viewer.',
             "",
         ]
         lines += [f"- **Fig. {num}** — p. {page}: {cap or '(untitled)'}" for num, page, cap in idx]

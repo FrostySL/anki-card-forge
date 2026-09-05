@@ -18,7 +18,7 @@ Result per PDF (mirrored into extracted/<topic>/):
   extracted/<topic>/figures/<name>_p<page>_<i>.png   — the crops
   extracted/<topic>/<name>.figures.json              — manifest (page, bbox 0..1, kind)
 
-The crops are small -> cheap to view with the Read tool (instead of loading the
+The crops are small -> cheap to inspect with an image viewer (instead of loading the
 whole PDF page) and directly usable as an occlusion `image` (path relative to the
 project root, file names globally unique via the <name> prefix). Page numbers are
 1-based like the `<!-- p. N -->` markers in the .md and the `<name>.figures.md`
