@@ -160,6 +160,55 @@ class TestLint(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("must be a string", out)
 
+    def test_invalid_shapes_reported_without_crashing(self):
+        malformed = [[], {"deck": 7, "cards": []}, {"deck": "D", "cards": {}},
+                     {"deck": "D", "cards": None}]
+        for data in malformed:
+            with self.subTest(data=data):
+                rc, out = _run(data)
+                self.assertEqual(rc, 1)
+                self.assertIn("[ERROR]", out)
+
+    def test_optional_field_types_are_checked(self):
+        for key, value in (("explanation", []), ("source", 42), ("extra", None),
+                           ("header", {}), ("more", []), ("reverse", "false"),
+                           ("type", [])):
+            with self.subTest(key=key):
+                rc, out = _run({"deck": "D", "cards": [
+                    {"front": "Q", "back": "A", key: value}]})
+                self.assertEqual(rc, 1)
+                self.assertIn(f"'{key}'", out)
+
+    def test_optional_raw_more_is_accepted_and_its_images_checked(self):
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "typein", "front": "Q", "back": "A", "more": " raw HTML "}]})
+        self.assertEqual(rc, 0)
+        self.assertIn("all good", out)
+        rc, out = _run({"deck": "D", "cards": [
+            {"type": "typein", "front": "Q", "back": "A",
+             "more": '<img src = "missing.png">'}]})
+        self.assertEqual(rc, 1)
+        self.assertIn("missing.png", out)
+
+    def test_image_attributes_with_spaces_or_unquoted_values_are_checked(self):
+        for markup in ('<img src = "missing.png">', '<img src=missing.png>',
+                       '<img data-src="ignore.png" src="missing.png">'):
+            with self.subTest(markup=markup):
+                rc, out = _run({"deck": "D", "cards": [{"front": "Q", "back": markup}]})
+                self.assertEqual(rc, 1)
+                self.assertIn("missing.png", out)
+                self.assertNotIn("ignore.png", out)
+
+    def test_region_types_reported_without_crashing(self):
+        for regions in ({}, [{"label": 3, "x": .1, "y": .1, "w": .1, "h": .1}],
+                        [{"label": "A", "x": True, "y": .1, "w": .1, "h": .1}],
+                        [{"label": "A", "x": float("nan"), "y": .1, "w": .1, "h": .1}]):
+            with self.subTest(regions=regions):
+                rc, out = _run({"deck": "D", "cards": [
+                    {"type": "occlusion", "image": "i.png", "regions": regions}]})
+                self.assertEqual(rc, 1)
+                self.assertIn("[ERROR]", out)
+
     def test_non_object_region_reported_not_crash(self):
         rc, out = _run(
             {"deck": "D", "cards": [{"type": "occlusion", "image": "i.png",

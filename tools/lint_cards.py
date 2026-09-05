@@ -10,11 +10,10 @@ import json
 import os
 import re
 import sys
+from _card_media import local_image_sources
+from _card_schema import TEXT_FIELDS, schema_errors
 
 _CLOZE_RE = re.compile(r"\{\{c(\d+)::.+?\}\}", re.DOTALL)
-# Local <img src="..."> in text fields (embedded by the build; must exist).
-_IMG_SRC_RE = re.compile(r"""<img\b[^>]*?\bsrc=(["'])(?!data:|https?:|//)([^"']+)\1""", re.IGNORECASE)
-_TEXT_FIELDS = ("front", "back", "text", "extra", "header", "explanation")
 _LONG_ANSWER = 350  # chars: above this, warn "answer may be too long"
 
 # Allowed fields — unknown keys (typos like "explaination") are silently dropped
@@ -22,8 +21,8 @@ _LONG_ANSWER = 350  # chars: above this, warn "answer may be too long"
 _DECK_KEYS = {"deck", "cards", "description"}
 _COMMON_KEYS = {"type", "tags", "guid", "explanation", "source"}
 _TYPE_KEYS = {
-    "basic": {"front", "back", "reverse"},
-    "typein": {"front", "back"},
+    "basic": {"front", "back", "reverse", "more"},
+    "typein": {"front", "back", "more"},
     "cloze": {"text", "extra"},
     "occlusion": {"image", "mode", "header", "extra", "regions"},
 }
@@ -39,26 +38,18 @@ def lint(cards_path):
     def warn(i, msg):
         warnings.append(f"  [warn]  card {i}: {msg}")
 
-    def str_field(card, i, key):
-        """String value of card[key] ('' if absent). A non-string value becomes
-        an [ERROR] instead of an AttributeError traceback further down —
-        exactly the broken JSON this linter exists to catch."""
-        val = card.get(key)
-        if val is None:
-            return ""
-        if not isinstance(val, str):
-            err(i, f"'{key}' must be a string, got {type(val).__name__}.")
-            return ""
-        return val
-
     with open(cards_path, encoding="utf-8") as f:
         data = json.load(f)
 
-    if not data.get("deck"):
-        errors.append("  [ERROR] 'deck' is missing or empty.")
-    if "description" in data and not isinstance(data["description"], str):
-        errors.append("  [ERROR] 'description' must be a string (HTML allowed).")
-    cards = data.get("cards") or []
+    shape_errors = schema_errors(data)
+    if shape_errors:
+        print(f"== Lint: {cards_path} ==")
+        for message in shape_errors:
+            print(f"  [ERROR] {message}")
+        print(f"-> {len(shape_errors)} errors, 0 warnings")
+        return 1
+
+    cards = data["cards"]
     if not cards:
         errors.append("  [ERROR] no 'cards' present.")
     for key in sorted(set(data) - _DECK_KEYS):
@@ -67,25 +58,13 @@ def lint(cards_path):
     seen_fronts = {}
     seen_guids = {}
     for i, card in enumerate(cards):
-        if not isinstance(card, dict):
-            err(i, f"card must be a JSON object, got {type(card).__name__}.")
-            continue
         guid = card.get("guid")
         if guid is not None:
-            if not isinstance(guid, str) or not guid.strip():
-                err(i, "'guid' must be a non-empty string.")
-            else:
-                seen_guids.setdefault(guid, []).append(i)
-        tags = card.get("tags")
-        if tags is not None and (
-                not isinstance(tags, list)
-                or not all(isinstance(t, str) for t in tags)):
-            err(i, "'tags' must be a list of strings — a bare string would "
-                   "end up as single-character tags in Anki.")
+            seen_guids.setdefault(guid, []).append(i)
         ctype = card.get("type", "basic")
         if ctype in ("basic", "typein"):
-            front = str_field(card, i, "front").strip()
-            back = str_field(card, i, "back").strip()
+            front = card["front"].strip()
+            back = card["back"].strip()
             if not front:
                 err(i, f"{ctype} without 'front'.")
             if not back:
@@ -95,7 +74,7 @@ def lint(cards_path):
             if len(back) > _LONG_ANSWER:
                 warn(i, f"answer very long ({len(back)} chars) – consider splitting.")
         elif ctype == "cloze":
-            text = str_field(card, i, "text").strip()
+            text = card["text"].strip()
             if not text:
                 err(i, "cloze without 'text'.")
             else:
@@ -117,20 +96,14 @@ def lint(cards_path):
             if not regions:
                 err(i, "occlusion without 'regions'.")
             for n, r in enumerate(regions):
-                if not isinstance(r, dict):
-                    err(i, f"region {n}: must be an object with x/y/w/h/label.")
-                    continue
                 for key in ("x", "y", "w", "h"):
-                    v = r.get(key)
-                    if not isinstance(v, (int, float)):
-                        err(i, f"region {n}: '{key}' missing or not a number.")
-                    elif not (0 <= v <= 1):
+                    v = r[key]
+                    if not (0 <= v <= 1):
                         warn(i, f"region {n}: '{key}'={v} outside 0..1 (fractions!).")
-                x, y = r.get("x", 0), r.get("y", 0)
-                w, h = r.get("w", 0), r.get("h", 0)
-                if isinstance(x, (int, float)) and isinstance(w, (int, float)) and x + w > 1.001:
+                x, y, w, h = r["x"], r["y"], r["w"], r["h"]
+                if x + w > 1.001:
                     warn(i, f"region {n}: x+w={x + w:.3f} > 1 – sticks out on the right.")
-                if isinstance(y, (int, float)) and isinstance(h, (int, float)) and y + h > 1.001:
+                if y + h > 1.001:
                     warn(i, f"region {n}: y+h={y + h:.3f} > 1 – sticks out at the bottom.")
                 if not (r.get("label") or "").strip():
                     warn(i, f"region {n}: no 'label' (answer stays empty).")
@@ -142,12 +115,12 @@ def lint(cards_path):
         else:
             err(i, f"unknown type '{ctype}' (basic | cloze | typein | occlusion).")
 
-        for key in _TEXT_FIELDS:
+        for key in TEXT_FIELDS:
             val = card.get(key)
             if isinstance(val, str):
-                for m in _IMG_SRC_RE.finditer(val):
-                    if not os.path.exists(m.group(2)):
-                        err(i, f"'{key}': <img> not found: {m.group(2)}")
+                for path in local_image_sources(val):
+                    if not os.path.exists(path):
+                        err(i, f"'{key}': <img> not found: {path}")
 
         if ctype in _TYPE_KEYS:
             for key in sorted(set(card) - _COMMON_KEYS - _TYPE_KEYS[ctype]):

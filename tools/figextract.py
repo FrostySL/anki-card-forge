@@ -93,7 +93,10 @@ def _figures_on_page(page, min_area, max_area, min_side):
     """Filtered, merged figure rectangles of a page (1 = whole page)."""
     pr = page.rect
     page_area = (pr.width * pr.height) or 1.0
-    candidates = _rects_from_images(page) + _rects_from_drawings(page)
+    # PyMuPDF reports image/drawing bounds in unrotated page coordinates,
+    # while page.rect and get_pixmap(clip=...) use the displayed rotation.
+    candidates = [(kind, rect * page.rotation_matrix & pr)
+                  for kind, rect in _rects_from_images(page) + _rects_from_drawings(page)]
     out = []
     for kind, r in _merge(candidates):
         f = _frac(r, pr)

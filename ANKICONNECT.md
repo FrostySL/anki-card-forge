@@ -110,7 +110,7 @@ python3 tools/anki_connect.py sync                          # trigger AnkiWeb sy
 python3 tools/anki_connect.py mirror [deck ...]             # snapshot decks locally
 python3 tools/anki_connect.py update-note <nid> --field "Name=<html>"   # edit one note in place
 python3 tools/anki_connect.py restore --list                # list backup snapshots
-python3 tools/anki_connect.py restore [<timestamp>]         # push a snapshot back (default: newest)
+python3 tools/anki_connect.py restore [<timestamp>]         # restore and verify old content (default: newest)
 ```
 
 ### `ping`
@@ -131,16 +131,16 @@ Imports a built package into the open collection — the automated version of
 *File → Import*. Two things to know:
 
 - **A push can only add or update, never delete.** Anki merges imports: notes
-  with a known GUID get their fields updated (learning progress stays), unknown
+  with a known GUID and newer modification time can update fields (learning progress stays), unknown
   GUIDs become new notes. Even pushing an empty deck of the same name leaves
   your cards untouched.
 - **Before the import, affected decks are backed up automatically** (see
   [Backups](#backups--restore)). Disable only deliberately with `--no-backup`.
 
-After the import, push reports what it did — `N new note(s), M matched
-existing GUIDs` (diffed against the fresh backup). Note-type conflicts are the
-one silent case: Anki skips imported notes whose GUID matches but whose note
-type differs — those need [`update-note`](#update-note-nid---field-namehtml).
+After the import, push reports `N new note(s), M matched existing GUIDs`
+(compared with the fresh backup). These are identity counts, not proof that
+every matched note changed: Anki may skip older/equal note versions or note-type
+conflicts. Conflicting note types need [`update-note`](#update-note-nid---field-namehtml).
 
 `--dry-run` shows exactly that report (plus the `--prune` deletion list, if
 given) **without importing anything** — the backup is still written, since it
@@ -224,34 +224,53 @@ What it does, in order:
 4. Imports the package, then deletes exactly the diffed notes — each one is
    listed in the output.
 
-Made a mistake? Push the backup: the deleted notes come back **with their
-scheduling**, and the surviving notes revert to their previous content.
+Made a mistake? Run `restore <snapshot>`: deleted notes return with their
+saved scheduling; surviving notes recover old content while keeping their
+current learning progress. A plain push of an older backup can be skipped by Anki.
 
 ## Backups & restore
 
-Every `push` (unless `--no-backup`) first exports each deck that exists in
-Anki *and* is touched by the package:
+Every `push` (unless `--no-backup`) backs up existing destination decks and
+the actual current decks of matching GUIDs, including notes moved to another
+deck or cards split across decks. AnkiConnect does not expose GUIDs in its note
+lookup API, so the tool scans temporary exports of all top-level decks first.
+This adds export time for large collections; scan files stay local and are
+removed, and only affected decks are retained as backups:
 
 ```
-decks/_anki-backups/<YYYYMMDD-HHMMSS>/<Deck>.apkg     # with scheduling
+decks/_anki-backups/<YYYYMMDD-HHMMSS-nanoseconds-unique>/<Deck>.apkg
 ```
 
 - Stored locally and gitignored; the commit guard also blocks committing them.
-- The **10 newest** timestamp folders are kept, older ones are pruned
-  automatically.
-- **Restore = push the backup.** The `restore` subcommand does that for you:
+- Each snapshot has a unique directory and becomes available only after every
+  export succeeds. Failed or in-progress snapshots never replace completed ones.
+- The **10 newest complete** snapshots are kept; older ones are pruned only
+  after the new snapshot is complete. Legacy timestamp folders remain readable.
+- **Use `restore` for old content.** It stages the selected snapshot before
+  taking a fresh backup, so retention cannot delete its inputs mid-restore:
 
   ```bash
   python3 tools/anki_connect.py restore --list        # what snapshots exist?
-  python3 tools/anki_connect.py restore               # push the NEWEST snapshot back
+  python3 tools/anki_connect.py restore               # restore the NEWEST snapshot
   python3 tools/anki_connect.py restore 20260707-100305   # or a specific one
-  # equivalent by hand:
-  python3 tools/anki_connect.py push decks/_anki-backups/<timestamp>/<Deck>.apkg
   ```
 
-  Same-GUID notes revert to the backed-up content; notes deleted by a prune
-  are re-created with their scheduling. The restore push itself takes a fresh
-  backup first — even a restore is undoable.
+  A disposable package copy receives newer note modification times so Anki
+  actually accepts older backed-up content. The original backup stays unchanged.
+  Afterwards, a fresh export verifies every restored GUID, field, tag and card
+  ordinal, and checks that existing card scheduling and review history stayed
+  unchanged. Success
+  is reported only when these checks pass. Missing notes return with the
+  snapshot's scheduling; existing notes retain their current progress.
+  Modern compressed exports are staged in archive framing supported by
+  AnkiConnect, including their media; no snapshot files are rewritten in place.
+
+  Restore refuses changed note types, field layouts or card ordinals before
+  importing, because those changes can affect existing cards and their progress.
+  Notes added since the snapshot remain, and deck placement and note-type
+  styling are not rolled back. For structural or full collection recovery,
+  use Anki's own collection backups. Restoring content always makes a fresh
+  pre-restore backup and never syncs automatically.
 
 Independent of this repo, Anki keeps its own automatic collection backups
 (*File → Restore from backup*; on Linux under
@@ -266,7 +285,7 @@ collection:
 | Risk | Guard |
 |---|---|
 | Deleting decks/notes via the API | `invoke()` only accepts a small allowlist of actions (`SAFE_ACTIONS`); `deleteDecks`, `deleteNotes` & co. are refused before any request is sent. Override only via `ANKICONNECT_ALLOW_UNSAFE=1`, which nothing in this repo sets. |
-| Bad content overwriting good cards | Auto-backup of affected decks before every push; restore by pushing the backup. |
+| Bad content overwriting good cards | GUID-aware backups before every push; `restore` forces old content to import and verifies the result. |
 | "Empty deck in → empty deck out" | Structurally impossible: imports merge, and prune ignores decks that have no cards in the package. |
 | Rebuild lost the GUIDs → prune would wipe progress | Zero-overlap refusal aborts the push before the import. |
 | Broken state reaching AnkiWeb/phone | Sync only ever runs as an explicit command, after the import can be checked. |

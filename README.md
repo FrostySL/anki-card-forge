@@ -207,6 +207,11 @@ with the same arguments: `prep`, `finish`, `extract`, `figextract`, `figindex`,
 `decode`, `diff`, `anki` and `test`. For example, `python3 tools/deck_diff.py`
 becomes `.\forge.cmd diff`, and `./tools/build.sh` becomes `.\forge.cmd build`.
 
+For HTML field arguments with embedded quotes or `&`, invoke `& .\forge.ps1`
+directly in PowerShell instead of the CMD entry point. It preserves literal
+arguments and keeps managed environment settings in a child process; see the
+[PowerShell example and execution-policy notes](docs/cross-platform-setup.md).
+
 ### Shared guide, skill, and workflows
 
 [AGENTS.md](AGENTS.md) is the provider-neutral project guide and card JSON
@@ -362,6 +367,17 @@ python3 tools/apkg_to_cards.py export.apkg -o decks/<topic>/<name>_rebuild
 # 4. Verify before importing: exactly the intended changes, no cloze breakage?
 python3 tools/deck_diff.py export.apkg restructured.apkg --strict
 ```
+
+The decoder keeps the third `More` field of type-in and reversed basic notes
+in `more`, including existing details/source HTML. Keep it separate from `back`.
+It refuses to write incomplete JSON when occlusion notes or unsupported field/
+deck layouts would be lost. Edit those notes, and foreign note types, in Anki or
+with `anki update-note`; rebuilding them as another type cannot update them safely.
+
+The package diff checks every raw note and field, including occlusion and
+foreign types. Strict mode rejects cloze/card-ordinal or note-type/field-layout
+changes and ambiguous comparisons. Review reported additions and removals too;
+they do not by themselves fail strict mode.
 
 Details (cloze pitfalls, CSS updates): [AGENTS.md](AGENTS.md).
 

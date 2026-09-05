@@ -32,6 +32,13 @@ Quote paths with spaces; input wildcards and calls from subdirectories are
 supported. Paths **inside cards.json** remain relative to the project root and
 use `/`, including media paths. Windows Anki connects directly through the
 managed interpreter; the WSL bridge below applies only to WSL projects.
+For literal HTML with embedded quotes or shell metacharacters, call the
+PowerShell entry point directly: `& .\forge.ps1 anki update-note <nid> --field
+'Front=<b title="a & b">Text</b>'`. CMD cannot preserve every such argument.
+If script execution is blocked, start `powershell.exe -NoProfile -ExecutionPolicy
+Bypass` and invoke `forge.ps1` inside that temporary session; do not change a
+persistent execution policy. The PowerShell entry point isolates managed
+environment settings in a child process.
 Previews use local MathJax, including dynamically loaded extensions; render
 failures stop the preview. `preview --offline` additionally rejects web media.
 Native Linux, macOS and Windows ARM64 setup are not supported in this release.
@@ -232,17 +239,27 @@ rebuild from it. Instead:
    ```
    Detects the modern (zstd) and legacy formats; one `cards.json` per deck. Runs
    on the host (stdlib + zstd), **no Docker**.
+   The CLI refuses partial conversion if image-occlusion notes or unsupported
+   field/deck layouts would be lost. Keep the original `.apkg`; edit unsupported
+   notes in Anki or through `update-note` without changing their note type.
+   A mirror's partial JSON index is not a complete rebuild input; inspect its
+   warnings and use the original `.apkg` as the complete backup.
 3. Edit the `cards.json` (structure/HTML — `card-authoring` skill). **Cloze:** keep
    the same `{{cN::…}}` (number + answer) **byte-identical** → card ord = cN−1
    stays, scheduling keeps fitting. Best to carry the tokens over programmatically
    from the original and only re-set the surroundings (table/list), then verify the
    token set is unchanged. **The extracted fields already contain the "details &
    source" box baked in** → do not additionally set `explanation`/`source`
-   (double box).
+   (double box). Type-in and reversed basic notes preserve their raw third
+   `More` field in JSON as `more`; keep it separate from `back`, which is also
+   the reverse card's question.
 4. **Rebuild** (GUIDs ⇒ progress kept): `./tools/build.sh decks/<topic>/<name>_rebuild/*.cards.json "<Title> (restructured).apkg"`.
 5. **Verify:** `python3 tools/deck_diff.py <export>.apkg <rebuild>.apkg --strict`
    — must show exactly the intended changes, no unexplained added/removed notes,
-   and ZERO cloze-number warnings (those mean lost scheduling). Then
+   and ZERO cloze or safety warnings. Package comparison includes all raw notes
+   and fields, including occlusion/foreign types. Strict mode rejects changed
+   note types, field layouts, card ordinals and ambiguous comparisons; additions
+   and removals still require reviewing the report. Then
    `validate.sh` (0 errors). For CSS/structure changes also `preview.sh`.
 6. The user imports: **"Update notes"**, do **not** reset scheduling.
    Pure **CSS changes** (note type styling) are often not applied by the import →
@@ -338,6 +355,9 @@ For occlusion cards, additionally run `preview.sh` and look at the PNGs (steps 2
   regions, see below).
 - `extra` (cloze/occlusion) and `tags` are optional; `tags` must be a **list**
   of strings (a bare string is rejected).
+- `more` (type-in/reversed basic, optional) preserves the exact HTML of the
+  exported third `More` field during a rework. It stays separate from `back`;
+  normally author new feedback with `explanation`/`source` instead.
 - **All text fields are rendered as HTML** (no escaping): to structure, use
   `<br>` (line break — a bare `\n` does NOT work), `<ul>/<ol>`, `<table>`.
   Structure improves readability, not the fact count per card (atomicity stays).

@@ -115,7 +115,16 @@ class TestSafeActions(unittest.TestCase):
         self.assertEqual(payloads[0]["action"], "deleteDecks")
 
 
-class TestPush(unittest.TestCase):
+class MockGuidScan(unittest.TestCase):
+    """Existing HTTP scenarios isolate the separately tested GUID discovery."""
+
+    def setUp(self):
+        patcher = mock.patch.object(ac, "_guid_decks", return_value=set())
+        self.scan = patcher.start()
+        self.addCleanup(patcher.stop)
+
+
+class TestPush(MockGuidScan):
     def test_sends_absolute_path(self):
         fake, payloads = urlopen_mock({"result": True, "error": None})
         original_cwd = os.getcwd()
@@ -233,7 +242,7 @@ class TestOrphans(unittest.TestCase):
                         package_decks={"A"})
 
 
-class TestPushPrune(unittest.TestCase):
+class TestPushPrune(MockGuidScan):
     def test_prune_requires_backup(self):
         with self.assertRaisesRegex(ac.AnkiConnectError, "--no-backup"):
             with tempfile.NamedTemporaryFile(suffix=".apkg") as f:
@@ -398,6 +407,71 @@ class TestBackupHelpers(unittest.TestCase):
                 left = sorted(os.listdir(ac.BACKUP_DIR))
         self.assertEqual(len(left), 10)
         self.assertEqual(left[0], "20260702-000002")  # the two oldest are gone
+
+    def test_same_second_backups_keep_both_versions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            counter = iter((b"first", b"second"))
+            def export(deck, path):
+                with open(path, "wb") as stream:
+                    stream.write(next(counter))
+            with mock.patch.object(ac, "BACKUP_DIR", directory), \
+                    mock.patch.object(ac.time, "strftime", return_value="20260905-120000"), \
+                    mock.patch.object(ac.time, "time_ns", return_value=123), \
+                    mock.patch.object(ac, "_export_package", export), redirect_stdout(io.StringIO()):
+                first = ac._backup_decks(["A"])[0]
+                second = ac._backup_decks(["A"])[0]
+                self.assertNotEqual(first, second)
+                with open(first, "rb") as stream:
+                    self.assertEqual(stream.read(), b"first")
+                self.assertEqual(len(ac._backup_stamps()), 2)
+
+    def test_incomplete_backup_is_not_published_and_does_not_rotate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(ac, "BACKUP_DIR", directory), \
+                    mock.patch.object(ac, "_export_package", side_effect=[None, ac.AnkiConnectError("failed")]):
+                for i in range(10):
+                    os.mkdir(os.path.join(directory, f"20260905-1200{i:02d}"))
+                with self.assertRaisesRegex(ac.AnkiConnectError, "failed"):
+                    ac._backup_decks(["A", "B"])
+                self.assertEqual(len(ac._backup_stamps()), 10)
+                self.assertFalse(any(name.startswith(".") for name in os.listdir(directory)))
+
+    def test_retention_ignores_scan_and_restore_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(ac, "BACKUP_DIR", directory):
+                for name in (".scan-active", ".pending-active", ".restore-source-active", "20260905-120000"):
+                    os.mkdir(os.path.join(directory, name))
+                ac._prune_backups(keep=0)
+                self.assertEqual(set(os.listdir(directory)),
+                                 {".scan-active", ".pending-active", ".restore-source-active"})
+
+
+class TestGuidDiscovery(unittest.TestCase):
+    def test_finds_all_card_decks_of_guid_outside_incoming_deck(self):
+        exported = []
+        def export(deck, path):
+            exported.append(deck)
+            open(path, "wb").close()
+        notes = [{"guid": "keep", "decks": ["Original", "Separate::Reverse"]},
+                 {"guid": "other", "decks": ["Unrelated"]}]
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(ac, "BACKUP_DIR", directory), \
+                mock.patch.object(ac, "_export_package", export), \
+                mock.patch.object(ac, "_raw_package_notes", return_value=notes):
+            found = ac._guid_decks({"keep"}, {"Original", "Original::Child", "Separate", "Separate::Reverse"})
+            self.assertEqual(found, {"Original", "Separate::Reverse"})
+            self.assertEqual(exported, ["Original", "Separate"])
+            self.assertEqual(os.listdir(directory), [])
+
+    def test_scan_failure_aborts_push_before_any_import(self):
+        with tempfile.NamedTemporaryFile(suffix=".apkg") as package, \
+                mock.patch.object(ac, "invoke", return_value=["Original"]) as invoke, \
+                mock.patch.object(ac, "_decks_in_apkg", return_value={"Renamed"}), \
+                mock.patch.object(ac, "_package_guids", return_value={"keep"}), \
+                mock.patch.object(ac, "_guid_decks", side_effect=ac.AnkiConnectError("scan failed")):
+            with self.assertRaisesRegex(ac.AnkiConnectError, "scan failed"):
+                ac.push(package.name)
+            self.assertEqual([call.args[0] for call in invoke.call_args_list], ["deckNames"])
 
 
 class TestExport(unittest.TestCase):
@@ -586,6 +660,16 @@ class TestMirror(unittest.TestCase):
         self.assertIn("empty deck", err)
         self.assertIn("OK: 'Full'", out)
 
+    def test_all_occlusion_mirror_keeps_full_package(self):
+        def check():
+            self.assertTrue(os.path.isfile(os.path.join(ac.MIRROR_DIR, "IO.apkg")))
+        _, out, err = self._run(
+            [{"result": True, "error": None}],
+            lambda path, directory: ([], ["Incomplete decode: occlusion skipped"]),
+            deck_names=["IO"], check=check)
+        self.assertIn("Incomplete decode", out)
+        self.assertNotIn("empty deck", err)
+
     def test_all_failed_raises(self):
         responses = [{"result": None, "error": "boom"}]
         fake, _ = urlopen_mock(*responses)
@@ -603,7 +687,7 @@ class TestMirror(unittest.TestCase):
                 os.chdir(cwd)
 
 
-class TestExportVerification(unittest.TestCase):
+class TestExportVerification(MockGuidScan):
     """exportPackage returns `false` WITHOUT an error envelope (e.g. unknown
     deck) — regression tests for the fix that stops reporting that as OK."""
 
@@ -641,7 +725,8 @@ class TestExportVerification(unittest.TestCase):
                 open("in.apkg", "wb").close()
                 with mock.patch.object(ac.urllib.request, "urlopen", fake), \
                         mock.patch.object(ac, "BACKUP_DIR", os.path.join(d, "b")), \
-                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}):
+                        mock.patch.object(ac, "_decks_in_apkg", lambda p: {"A"}), \
+                        mock.patch.object(ac, "_package_guids", lambda p: {"g"}):
                     with redirect_stdout(io.StringIO()):
                         with self.assertRaises(ac.AnkiConnectError):
                             ac.push("in.apkg")
@@ -650,7 +735,7 @@ class TestExportVerification(unittest.TestCase):
         self.assertNotIn("importPackage", [p["action"] for p in payloads])
 
 
-class TestImportVerification(unittest.TestCase):
+class TestImportVerification(MockGuidScan):
     """importPackage also returns `false` without an error (e.g. profile picker
     open, no collection loaded) — that must fail loudly, and prune must not run."""
 
@@ -698,7 +783,7 @@ class TestListDecks(unittest.TestCase):
         self.assertEqual(out.getvalue().splitlines(), ["A::Sub", "B"])
 
 
-class TestDryRun(unittest.TestCase):
+class TestDryRun(MockGuidScan):
     def _dry_run(self, prune=False):
         fake, payloads = urlopen_mock(
             {"result": ["A"], "error": None},  # deckNames
@@ -746,7 +831,7 @@ class TestDryRun(unittest.TestCase):
                 ac.push(f.name, backup=False, dry_run=True)
 
 
-class TestImportReport(unittest.TestCase):
+class TestImportReport(MockGuidScan):
     def test_push_reports_new_and_updated(self):
         fake, _ = urlopen_mock(
             {"result": ["A"], "error": None},  # deckNames
@@ -793,16 +878,22 @@ class TestRestore(unittest.TestCase):
         lines = out.getvalue().splitlines()
         self.assertEqual(lines, ["20260101-000000: A", "20260102-000000: A, B"])
 
-    def test_restores_newest_by_default_via_push(self):
-        pushed = []
+    def test_stages_newest_snapshot_before_restore_and_rotation(self):
+        restored = []
+        def restore_files(paths):
+            restored.extend(os.path.basename(p) for p in paths)
+            # Inputs are copies outside the selected snapshot, so rotating that
+            # snapshot before importing its second package cannot remove them.
+            self.assertTrue(all(".restore-source-" in p for p in paths))
+            ac._prune_backups(keep=0)
+            self.assertTrue(all(os.path.isfile(p) for p in paths))
         with self._with_backups({"20260101-000000": ["Old"],
                                  "20260102-000000": ["A", "B"]}) as bdir:
             with mock.patch.object(ac, "BACKUP_DIR", bdir), \
-                    mock.patch.object(ac, "push", lambda p, **kw: pushed.append(p)):
+                    mock.patch.object(ac, "_restore_packages", restore_files):
                 with redirect_stdout(io.StringIO()):
                     ac.restore()
-        self.assertEqual([os.path.basename(p) for p in pushed],
-                         ["A.apkg", "B.apkg"])  # newest snapshot only
+        self.assertEqual(restored, ["0-A.apkg", "1-B.apkg"])
 
     def test_unknown_timestamp_raises_with_available(self):
         with self._with_backups({"20260101-000000": ["A"]}) as bdir:
@@ -815,6 +906,18 @@ class TestRestore(unittest.TestCase):
             with mock.patch.object(ac, "BACKUP_DIR", bdir):
                 with self.assertRaisesRegex(ac.AnkiConnectError, "No backups"):
                     ac.restore()
+
+    def test_changed_card_ordinals_refused_before_import(self):
+        expected = {"g": {"model_id": 1, "field_names": ["Front", "Back"], "ords": [0]}}
+        current = {"g": {**expected["g"], "ords": [0, 1]}}
+        with mock.patch.object(ac, "_package_state", side_effect=[(expected, {}, 0), (current, {}, 0)]), \
+                mock.patch.object(ac, "invoke", return_value=["A"]) as invoke, \
+                mock.patch.object(ac, "_decks_in_apkg", return_value={"A"}), \
+                mock.patch.object(ac, "_guid_decks", return_value={"A"}), \
+                mock.patch.object(ac, "_backup_decks", return_value=[]):
+            with self.assertRaisesRegex(ac.AnkiConnectError, "card ordinals changed"):
+                ac._restore_packages(["unused.apkg"])
+        self.assertEqual([call.args[0] for call in invoke.call_args_list], ["deckNames"])
 
 
 class TestSafeNames(unittest.TestCase):

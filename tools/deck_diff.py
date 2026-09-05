@@ -3,8 +3,8 @@
 
     python3 tools/deck_diff.py <old> <new> [--strict]
 
-<old> and <new> are each: a .cards.json, an .apkg (decoded via apkg_to_cards,
-GUIDs preserved), or a folder (all *.cards.json inside, recursive).
+<old> and <new> are each: a .cards.json, an .apkg (all raw notes and fields,
+including unsupported note types), or a folder (all *.cards.json inside, recursive).
 
 Built for the GUID-preserving rework workflow (AGENTS.md, "Changing an
 existing/learned deck"): before pushing a rebuilt deck, verify that it
@@ -23,8 +23,9 @@ answer text inside a kept cN updates the content but keeps the scheduling.
 Notes without an explicit `guid` (hand-written cards.json) are matched by
 content (type + text/front) as a fallback; the summary says how many.
 
-Informational by default (exit 0). --strict: exit 1 if any cloze-number
-warning — use it as a gate before `push`.
+Informational by default (exit 0). --strict: exit 1 for cloze-number changes,
+note-type/card-ordinal changes, or an incomplete/ambiguous comparison.
+Added and removed notes remain informational; review them before `push`.
 
 Runs on the host, stdlib only (zstd needed only when reading modern .apkg).
 """
@@ -40,7 +41,15 @@ _TAG_RE = re.compile(r"<[^>]+>")
 # Everything content-bearing; 'guid' is the identity, not content.
 _COMPARE_KEYS = ("type", "front", "back", "text", "extra", "explanation",
                  "source", "reverse", "tags", "image", "mode", "header",
-                 "regions")
+                 "regions", "more")
+# Frozen builder identities, kept dependency-free so diff also runs without
+# genanki. Tests compare these against the actual builder model IDs.
+_JSON_MODEL_LAYOUTS = {
+    "Anki-Karten Basic": (1776014608, ["Front", "Back"]),
+    "Anki-Karten Cloze": (786786125, ["Text", "Extra"]),
+    "Anki-Karten Type-in": (761558241, ["Front", "Back", "More"]),
+    "Anki-Karten Basic+Reversed": (110796264, ["Front", "Back", "More"]),
+}
 
 
 def _apkg_to_cards():
@@ -55,6 +64,27 @@ def _snippet(card, limit=60):
     return text[:limit] + ("…" if len(text) > limit else "")
 
 
+def _raw_card(note):
+    """Display/projection for JSON comparisons; the complete raw note stays attached."""
+    fields = note["fields"]
+    first = fields[0] if fields else ""
+    second = fields[1] if len(fields) > 1 else ""
+    model = note["model"]
+    card = {"guid": note["guid"], "tags": note["tags"], "_raw": note}
+    if model == "Anki-Karten Cloze":
+        card.update(type="cloze", text=first, extra=second)
+    else:
+        kind = "typein" if model == "Anki-Karten Type-in" else "basic"
+        if "occlusion" in model.lower():
+            kind = "occlusion"
+        card.update(type=kind, front=first, back=second)
+        if model == "Anki-Karten Basic+Reversed":
+            card["reverse"] = True
+        if model in {"Anki-Karten Type-in", "Anki-Karten Basic+Reversed"}:
+            card["more"] = fields[2] if len(fields) > 2 else ""
+    return card
+
+
 def _iter_decks(path, warnings):
     """Yields (deck name, cards list) from a .cards.json / .apkg / folder."""
     if os.path.isdir(path):
@@ -64,18 +94,19 @@ def _iter_decks(path, warnings):
             raise SystemExit(f"No *.cards.json under {path}")
         for f in files:
             yield from _iter_decks(f, warnings)
-    elif path.endswith(".apkg"):
+    elif path.lower().endswith(".apkg"):
         atc = _apkg_to_cards()
         con, tmp = atc.open_collection(path)
         try:
-            by_deck, decode_warnings = atc.extract(con)
+            notes = atc.raw_notes(con)
         finally:
             con.close()
             os.unlink(tmp)
-        # e.g. skipped occlusion notes — those are invisible to the diff.
-        warnings.extend(f"{os.path.basename(path)}: {w}" for w in decode_warnings)
-        yield from sorted(by_deck.items())
-    elif path.endswith(".json"):
+        for note in notes:
+            if not note["guid"]:
+                warnings.append(f"{path}: raw note {note['id']} has no GUID; comparison is ambiguous.")
+            yield "; ".join(note["decks"]), [_raw_card(note)]
+    elif path.lower().endswith(".json"):
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         yield data.get("deck", "?"), data.get("cards") or []
@@ -117,7 +148,46 @@ def _cloze_tokens(text):
 
 
 def _changed_fields(a, b):
-    return [k for k in _COMPARE_KEYS if a.get(k) != b.get(k)]
+    changed = [k for k in _COMPARE_KEYS if a.get(k) != b.get(k)]
+    if "_raw" in a and "_raw" in b:
+        for key in ("model_id", "model", "field_names", "fields", "ords"):
+            if a["_raw"].get(key) != b["_raw"].get(key):
+                changed.append("card_ordinals" if key == "ords" else key)
+        if len(a["_raw"]["fields"]) != len(b["_raw"]["fields"]):
+            changed.append("field_count")
+    return changed
+
+
+def _cloze_text(card):
+    if "_raw" in card:
+        return "\n".join(card["_raw"]["fields"])
+    return card.get("text", "")
+
+
+def _mixed_comparison_issue(a, b):
+    if ("_raw" in a) == ("_raw" in b):
+        return None
+    raw = (a if "_raw" in a else b)["_raw"]
+    json_card = b if "_raw" in a else a
+    layout = _JSON_MODEL_LAYOUTS.get(raw["model"])
+    if layout is None or len(raw["fields"]) != len(layout[1]):
+        return "unsupported raw note type/field layout cannot be fully compared with cards.json; compare two .apkg files"
+    if raw["model_id"] != layout[0]:
+        return "raw model_id differs from the builder despite a matching name; rebuild cannot safely update this note type"
+    if raw["field_names"] != layout[1]:
+        return "raw field_names are missing or differ from the builder field order; compare two .apkg files"
+    if len(raw["decks"]) != 1:
+        return "multiple card deck assignments cannot be represented by cards.json; compare two .apkg files"
+    kind = json_card.get("type", "basic")
+    if kind == "cloze":
+        ords = sorted(n - 1 for n in _cloze_numbers(json_card.get("text", "")) if n > 0)
+    elif kind == "basic" and json_card.get("reverse"):
+        ords = [0, 1]
+    else:
+        ords = [0]
+    if raw["ords"] != ords:
+        return "raw card ordinals are missing or differ from the cards.json rebuild; existing card scheduling may not be preserved"
+    return None
 
 
 def diff(old_path, new_path, strict=False):
@@ -129,7 +199,7 @@ def diff(old_path, new_path, strict=False):
     removed = sorted(set(old) - set(new), key=str)
     common = sorted(set(old) & set(new), key=str)
 
-    changed, moved, cloze_breaks = [], [], []
+    changed, moved, cloze_breaks, safety_breaks = [], [], [], []
     for key in common:
         old_deck, old_card = old[key]
         new_deck, new_card = new[key]
@@ -138,11 +208,17 @@ def diff(old_path, new_path, strict=False):
             changed.append((key, new_deck, new_card, fields))
         if old_deck != new_deck:
             moved.append((key, old_deck, new_deck, new_card))
-        if "text" in fields:
-            old_nums, new_nums = (_cloze_numbers(old_card.get("text")),
-                                  _cloze_numbers(new_card.get("text")))
-            if old_nums != new_nums:
-                cloze_breaks.append((key, new_card, old_nums, new_nums))
+        old_nums, new_nums = (_cloze_numbers(_cloze_text(old_card)),
+                              _cloze_numbers(_cloze_text(new_card)))
+        if old_nums != new_nums:
+            cloze_breaks.append((key, new_card, old_nums, new_nums))
+        structural = set(fields) & {"type", "reverse", "model_id", "field_names", "field_count", "card_ordinals"}
+        if structural:
+            safety_breaks.append(f"{key[1]!r}: note type/field layout or card ordinals changed "
+                                 f"({', '.join(sorted(structural))}); existing cards may not update or keep scheduling.")
+        incomplete = _mixed_comparison_issue(old_card, new_card)
+        if incomplete:
+            safety_breaks.append(f"{key[1]!r}: {incomplete}.")
 
     unchanged = len(common) - len(changed)
     print(f"== Deck diff: {old_path} -> {new_path} ==")
@@ -176,11 +252,13 @@ def diff(old_path, new_path, strict=False):
               "learning progress is LOST.")
     for w in warnings:
         print(f"  [note] {w}")
+    for issue in safety_breaks:
+        print(f"  [WARN] {issue}")
 
-    if not (added or removed or changed or moved):
+    if not (added or removed or changed or moved or warnings or safety_breaks):
         print("  identical ✓")
-    print(f"-> {len(cloze_breaks)} cloze warning(s), {len(warnings)} note(s).")
-    return 1 if (strict and cloze_breaks) else 0
+    print(f"-> {len(cloze_breaks)} cloze warning(s), {len(safety_breaks)} safety warning(s), {len(warnings)} note(s).")
+    return 1 if (strict and (cloze_breaks or safety_breaks or warnings)) else 0
 
 
 def main(argv):
@@ -189,7 +267,7 @@ def main(argv):
     ap.add_argument("old", help="old state: .cards.json, .apkg or folder")
     ap.add_argument("new", help="new state: .cards.json, .apkg or folder")
     ap.add_argument("--strict", action="store_true",
-                    help="exit 1 on cloze-number warnings (scheduling breaks)")
+                    help="exit 1 on scheduling breaks or incomplete/ambiguous comparisons")
     args = ap.parse_args(argv)
     return diff(args.old, args.new, args.strict)
 

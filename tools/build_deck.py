@@ -24,6 +24,8 @@ import sys
 
 import genanki
 from _filenames import collision_key
+from _card_media import rewrite_local_images
+from _card_schema import TEXT_FIELDS, validate_schema
 
 
 def stable_id(text: str) -> int:
@@ -36,7 +38,7 @@ def stable_id(text: str) -> int:
     return int(digest[:8], 16) % (2**31 - 1) + 1
 
 
-_CSS = """
+_CSS = r"""
 .card {
   /* Deliberately NO fixed color/background: Anki colors text+background per
      theme itself (dark in night mode, light otherwise). We only set theme-neutral
@@ -308,24 +310,19 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
 # <img src="..."> in any text field: like occlusion images, paths are relative
 # to the project root. The build embeds the file into the .apkg and rewrites the
 # src to the bare file name (Anki media is flat). http(s)/data URLs stay as-is.
-_IMG_SRC_RE = re.compile(r"""(<img\b[^>]*?\bsrc=(["']))(?!data:|https?:|//)([^"']+)(\2)""", re.IGNORECASE)
-
-_TEXT_FIELDS = ("front", "back", "text", "extra", "header", "explanation")
-
-
 def collect_field_images(card, media):
     """Registers local <img> sources of a card in `media` and rewrites the
     src attributes to the file's basename. Mutates `card` in place."""
-    for key in _TEXT_FIELDS:
+    for key in TEXT_FIELDS:
         val = card.get(key)
         if not isinstance(val, str) or "<img" not in val.lower():
             continue
 
-        def repl(m):
-            media.add(m.group(3))
-            return m.group(1) + os.path.basename(m.group(3)) + m.group(4)
+        def repl(path):
+            media.add(path)
+            return os.path.basename(path)
 
-        card[key] = _IMG_SRC_RE.sub(repl, val)
+        card[key] = rewrite_local_images(val, repl)
 
 
 def _more_html(card):
@@ -333,12 +330,14 @@ def _more_html(card):
 
     Appears ONLY on the back, collapsed by default -> elaborative feedback after
     retrieval without making the question easier. 'explanation' may contain HTML,
-    'source' is escaped as text.
+    'source' is escaped as text. An exported raw 'more' field is retained exactly
+    before any newly requested details, without wrapping or extracting its HTML.
     """
     expl = (card.get("explanation") or "").strip()
     src = (card.get("source") or "").strip()
+    raw = card.get("more", "")
     if not expl and not src:
-        return ""
+        return raw
     parts = []
     if expl:
         parts.append(f'<div class="more-expl">{expl}</div>')
@@ -350,7 +349,7 @@ def _more_html(card):
         label = "Details"
     else:
         label = "Source"
-    return f'<details class="more"><summary>{label}</summary>{"".join(parts)}</details>'
+    return raw + f'<details class="more"><summary>{label}</summary>{"".join(parts)}</details>'
 
 
 def render_basic(card):
@@ -449,6 +448,7 @@ def _add_occlusion_notes(deck, card, media):
 
 def _deck_from_data(data, media):
     """Builds a genanki.Deck from a parsed cards.json (+ counts notes)."""
+    validate_schema(data)
     deck_name = data["deck"]
     # Optional deck-level "description": shows up in Anki's deck overview —
     # provenance (source, date) for users with many generated decks.
@@ -458,13 +458,6 @@ def _deck_from_data(data, media):
     for i, card in enumerate(data["cards"]):
         ctype = card.get("type", "basic")
         tags = card.get("tags", [])
-        # genanki iterates tags: a bare string "bio" would silently become the
-        # three tags b/i/o. Reject instead.
-        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
-            raise ValueError(
-                f"{deck_name}, card {i}: 'tags' must be a list of strings, "
-                f"got {tags!r}."
-            )
         collect_field_images(card, media)
         more = _more_html(card)
         # Optional stable GUID: allows a rebuild that UPDATES a note already

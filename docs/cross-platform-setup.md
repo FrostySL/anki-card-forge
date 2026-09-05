@@ -44,6 +44,21 @@ auf das aktuelle Verzeichnis. Medienpfade **in Karten-JSON** beziehen sich
 immer auf das Projekt und verwenden `/`. Für lange Dokumentnamen einen kurzen
 Projektpfad wählen, damit Windows-Pfadlängengrenzen nicht erreicht werden.
 
+Für HTML-Felder und Argumente mit eingebetteten Anführungszeichen oder
+Shell-Zeichen wie `&` gibt es den PowerShell-Einstieg `forge.ps1`. Die `.cmd`-
+Weitergabe unterliegt zusätzlich der CMD-Auswertung; nutze für solche Werte
+das Skript direkt in PowerShell:
+
+```powershell
+& .\forge.ps1 anki update-note 123 --field 'Front=<b title="a & b">Text</b>'
+```
+
+Falls die Ausführungsrichtlinie das Skript blockiert, öffne mit
+`powershell.exe -NoProfile -ExecutionPolicy Bypass` eine PowerShell-Sitzung und
+führe den Skriptaufruf darin aus. Das ändert keine dauerhafte Richtlinie.
+`forge.ps1` führt die Einrichtung/Befehle in einem Kindprozess aus; der PATH und
+die Werkzeugeinstellungen deiner PowerShell-Sitzung bleiben erhalten.
+
 ## Lokale Komponenten und Integrität
 
 | Ort | Inhalt |

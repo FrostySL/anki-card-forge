@@ -91,6 +91,11 @@ class TestStableIdFreeze(unittest.TestCase):
         self.assertEqual(bd.REVERSED_MODEL.model_id, self.FROZEN["anki-karten:reversed-model:v1"])
         self.assertEqual(bd.OCCLUSION_MODEL.model_id, self.FROZEN["anki-karten:occlusion-model:v1"])
 
+    def test_dependency_free_diff_layouts_use_builder_model_ids(self):
+        layouts = load("deck_diff")._JSON_MODEL_LAYOUTS
+        for model in (bd.BASIC_MODEL, bd.CLOZE_MODEL, bd.TYPEIN_MODEL, bd.REVERSED_MODEL):
+            self.assertEqual(layouts[model.name][0], model.model_id)
+
     def test_deterministic(self):
         self.assertEqual(bd.stable_id("some deck"), bd.stable_id("some deck"))
 
@@ -107,6 +112,30 @@ class TestClozeNumbers(unittest.TestCase):
 
     def test_none_without_deletions(self):
         self.assertEqual(bd._cloze_numbers("no deletions here"), [])
+
+
+class TestSchemaAndRawMore(unittest.TestCase):
+    def test_builder_rejects_invalid_json_before_mutating_card_fields(self):
+        for change in ({"explanation": []}, {"reverse": "false"}, {"source": 3}):
+            card = {"front": "Q", "back": '<img src="folder/a.png">', **change}
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "Invalid cards JSON"):
+                bd._deck_from_data({"deck": "D", "cards": [card]}, set())
+            self.assertEqual(card["back"], '<img src="folder/a.png">')
+
+    def test_raw_more_survives_typein_and_reversed_fields_exactly(self):
+        raw = '  <div>Custom feedback</div>\n<details class="more">existing</details> '
+        for options in ({"type": "typein"}, {"type": "basic", "reverse": True}):
+            card = {"front": "Q", "back": "A", "more": raw, "guid": "kept", **options}
+            with self.subTest(options=options):
+                deck, _, _ = bd._deck_from_data({"deck": "D", "cards": [card]}, set())
+                self.assertEqual(deck.notes[0].fields, ["Q", "A", raw])
+                self.assertEqual(deck.notes[0].guid, "kept")
+                self.assertEqual(bd._more_html(card), raw)
+
+    def test_css_retains_css_escapes_instead_of_python_octal_characters(self):
+        for escape in (r"\2605", r"\26A0", r"\276F", r"\1F9E0", r"\1F4A1"):
+            self.assertIn(escape, bd._CSS)
+        self.assertFalse(any(ord(c) < 32 and c not in "\n\r\t" for c in bd._CSS))
 
 
 class TestBoxStyleClamp(unittest.TestCase):

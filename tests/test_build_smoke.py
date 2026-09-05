@@ -70,6 +70,21 @@ class TestBuildSmoke(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Media name clash"):
                 bd.build(str(cards), str(Path(d) / "t.apkg"))
 
+    def test_spaced_image_attribute_is_packaged_including_raw_more(self):
+        with tempfile.TemporaryDirectory() as d:
+            img = Path(d) / "actual image.png"
+            img.write_bytes(b"synthetic image")
+            cards = Path(d) / "t.cards.json"
+            cards.write_text(json.dumps({"deck": "T", "cards": [
+                {"type": "typein", "front": "Q", "back": "A",
+                 "more": f'<img data-src="ignored.png" src = "{img}">'}]}), encoding="utf-8")
+            out = Path(d) / "t.apkg"
+            bd.build(str(cards), str(out))
+            with zipfile.ZipFile(out) as z:
+                media = json.loads(z.read("media"))
+                self.assertEqual(list(media.values()), ["actual image.png"])
+                self.assertEqual(z.read(next(iter(media))), b"synthetic image")
+
     def test_tags_as_string_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             cards = Path(d) / "t.cards.json"

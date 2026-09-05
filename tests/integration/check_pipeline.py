@@ -201,6 +201,7 @@ def check_build(cards, image, deck_dir, extracted_dir):
 
 
 def check_visual(cards, image, source_dir, extracted_dir):
+    in_container("anki-cards-extract", "tests/integration/check_figure_rotation.py")
     pdf = source_dir / "sample.pdf"  # Lowercase-only folder exercises prep.sh's PDF detection.
     in_container("anki-cards-extract", "tests/integration/make_pdf.py", pdf, image)
     (source_dir / "notes.txt").write_text("Synthetic text source: local fixture only.\n", encoding="utf-8")
