@@ -157,7 +157,9 @@ function Set-ChildEnvironment {
     $env:UV_PROJECT_ENVIRONMENT = Join-Path $projectRoot '.venv'
     $env:VIRTUAL_ENV = Join-Path $projectRoot '.venv'
     $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $managedRoot 'browsers'
-    $env:TESSDATA_PREFIX = Join-Path $managedRoot ('tools\tesseract-' + $manifest.tesseract_version + '\tessdata')
+    # Native tools run from the project root. Keep this argument ASCII because
+    # Tesseract's Windows filesystem conversion rejects Unicode model paths.
+    $env:TESSDATA_PREFIX = '.forge/tools/tesseract-' + $manifest.tesseract_version + '/tessdata'
     $env:ACF_MATHJAX_DIR = Join-Path $managedRoot ('assets\mathjax-' + $manifest.mathjax_version + '\es5')
     $env:PATH = (Join-Path $projectRoot '.venv\Scripts') + ';' +
         (Join-Path $managedRoot ('tools\tesseract-' + $manifest.tesseract_version)) + ';' + $env:PATH

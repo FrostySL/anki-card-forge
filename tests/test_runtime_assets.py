@@ -201,9 +201,22 @@ class RuntimeAssets(unittest.TestCase):
             env = native.environment(native.ROOT)
         self.assertEqual(dict(os.environ), before)
         self.assertEqual(env["PYTHONUTF8"], "1")
-        self.assertTrue(Path(env["TESSDATA_PREFIX"]).is_relative_to(native.ROOT / ".forge"))
+        self.assertTrue((native.ROOT / env["TESSDATA_PREFIX"]).is_relative_to(native.ROOT / ".forge"))
         self.assertTrue(Path(env["ACF_MATHJAX_DIR"]).is_relative_to(native.ROOT / ".forge"))
         self.assertEqual(Path(env["UV_PROJECT_ENVIRONMENT"]), native.ROOT / ".venv")
+
+    @unittest.skipUnless(os.name == "nt", "Windows Tesseract needs ASCII model arguments")
+    def test_windows_unicode_root_keeps_model_argument_ascii_and_relative(self):
+        root = self.root / "Anki Test ä 日本語"
+        (root / "tools").mkdir(parents=True)
+        manifest = assets.load_manifest()
+        (root / "tools/runtime-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        env = native.environment(root)
+        argument = env["TESSDATA_PREFIX"]
+        self.assertTrue(argument.isascii())
+        self.assertFalse(Path(argument).is_absolute())
+        self.assertEqual(root / argument,
+                         root / ".forge/tools" / f"tesseract-{manifest['tesseract_version']}" / "tessdata")
 
     def test_offline_browser_repair_refuses_network_when_cache_is_missing(self):
         browsers = self.root / "browsers"

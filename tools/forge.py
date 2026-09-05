@@ -153,7 +153,7 @@ class Forge:
         options = dict(split_arguments(args, OPTIONS[command]))
         language_spec = options.get("--lang", "eng+deu")
         languages = [language for language in language_spec.split("+") if language]
-        folder = Path(tessdata).resolve()
+        folder = (self.root / tessdata).resolve()
         missing = []
         for language in languages:
             model = (folder / (language + ".traineddata")).resolve()

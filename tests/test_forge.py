@@ -152,6 +152,14 @@ class TestForge(unittest.TestCase):
         self.dispatch("extract", ["sources/T/source.pdf"])
         self.assertEqual(self.invocations(), [("extract.py", ["sources/T/source.pdf"])])
 
+    def test_relative_tessdata_uses_project_root_from_a_subdirectory(self):
+        self.file("tessdata/eng.traineddata")
+        source = self.file("sources/Topic ü/label.png")
+        self.app.cwd = source.parent
+        self.app.env["TESSDATA_PREFIX"] = "tessdata"
+        self.dispatch("detect", ["label.png", "--lang=eng"])
+        self.assertEqual(self.invocations(), [("detect_labels.py", ["sources/Topic ü/label.png", "--lang", "eng"])])
+
     def test_colliding_source_folder_outputs_fail_before_any_write(self):
         self.file("sources/T/chapter.pdf")
         self.file("sources/T/chapter.txt")

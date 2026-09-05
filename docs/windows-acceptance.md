@@ -16,7 +16,8 @@ synthetic; personal collection exports and diagnostic files remain local.
 | MathJax failure cases | Passed: missing extension fails; literal TeX inside code/pre remains literal |
 | Portable names and repository guard | Passed: reserved names, case/Unicode collisions, local runtime protection |
 | Launcher without Python on PATH | Passed: actual inbox PowerShell, Unicode/space folder, read-only doctor/help, explicit empty-cache offline failure |
-| Native Windows Python suite | Passed: 250 tests, five platform-specific skips; includes duplicate-case environment regression |
+| Native Windows Python suite | Passed: 259 tests, five platform-specific skips; includes duplicate-case environment and Unicode OCR regressions |
+| Tesseract Unicode paths | Passed: relative model paths and streamed label OCR with Unicode source/TEMP; three expected labels retained |
 | Linux Python, shell and Docker integration | Passed in GitHub CI, including real Anki, PDF/OCR and formula previews |
 | Clean source archive on GitHub Windows CI | Pending candidate CI run |
 | Clean Windows Sandbox, standard user, guest network disabled on repeat | Feature enabled; pending host restart and candidate run |

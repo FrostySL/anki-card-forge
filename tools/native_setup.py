@@ -32,6 +32,11 @@ def environment(root):
     windows = os.name == "nt"
     scripts = root / ".venv" / ("Scripts" if windows else "bin")
     tesseract = managed / "tools" / f"tesseract-{manifest['tesseract_version']}"
+    # This Windows Tesseract build cannot convert a non-ASCII absolute model
+    # directory through std::filesystem. Native children run with cwd=root, so
+    # keep its model argument ASCII while Python retains the real Unicode paths.
+    tessdata = tesseract / "tessdata"
+    tessdata_argument = tessdata.relative_to(root).as_posix() if windows else str(tessdata)
     result = dict(os.environ)
     for name in list(result):
         if (name.upper().startswith(("UV_", "PLAYWRIGHT_", "NPM_CONFIG_PLAYWRIGHT_", "NPM_PACKAGE_CONFIG_PLAYWRIGHT_"))
@@ -49,7 +54,7 @@ def environment(root):
         "UV_PYTHON_DOWNLOADS": "never",
         "UV_LINK_MODE": "copy",
         "PLAYWRIGHT_BROWSERS_PATH": str(managed / "browsers"),
-        "TESSDATA_PREFIX": str(tesseract / "tessdata"),
+        "TESSDATA_PREFIX": tessdata_argument,
         "ACF_MATHJAX_DIR": str(managed / "assets" / f"mathjax-{manifest['mathjax_version']}" / "es5"),
         "PATH": os.pathsep.join((str(scripts), str(tesseract), str(managed / "python"), result.get("PATH", ""))),
     })
@@ -287,6 +292,7 @@ def diagnose(root=ROOT, *, require_state=True):
     env = environment(root)
     manifest = runtime_assets.load_manifest(root / "tools" / "runtime-manifest.json")
     managed = root / ".forge"
+    tessdata = root / env["TESSDATA_PREFIX"]
     issues = []
     report = {
         "ready": False,
@@ -298,8 +304,8 @@ def diagnose(root=ROOT, *, require_state=True):
         "paths": {"managed_root": str(managed), "venv": str(root / ".venv"),
                   "uv": str(managed / "uv" / "uv.exe"),
                   "base_python": str(managed / "python" / "python.exe"),
-                  "tesseract": str(Path(env["TESSDATA_PREFIX"]).parent / "tesseract.exe"),
-                  "tessdata": env["TESSDATA_PREFIX"], "browsers": env["PLAYWRIGHT_BROWSERS_PATH"],
+                  "tesseract": str(tessdata.parent / "tesseract.exe"),
+                  "tessdata": str(tessdata), "browsers": env["PLAYWRIGHT_BROWSERS_PATH"],
                   "mathjax": env["ACF_MATHJAX_DIR"]},
         "versions": {}, "packages": {}, "languages": [], "issues": issues,
         "manifest_sha256": runtime_assets.sha256_file(root / "tools" / "runtime-manifest.json"),
@@ -343,7 +349,7 @@ def diagnose(root=ROOT, *, require_state=True):
             if language not in report["languages"]:
                 issues.append(f"OCR language is missing: {language}.")
         for language in report["languages"]:
-            runtime_assets.verify_asset(Path(env["TESSDATA_PREFIX"]) / (language + ".traineddata"),
+            runtime_assets.verify_asset(tessdata / (language + ".traineddata"),
                                         runtime_assets.language_asset(language, manifest))
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         issues.append(f"OCR language check: {error}")

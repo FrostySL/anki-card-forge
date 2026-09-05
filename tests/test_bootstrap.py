@@ -148,6 +148,7 @@ $manifest = @{ tesseract_version = 'fixture' }
 Set-ChildEnvironment
 if ([Environment]::GetEnvironmentVariable('UV_INDEX_URL')) { throw 'Inherited uv override survived' }
 if ($env:PYTHONUTF8 -ne '1') { throw 'Managed environment was not applied' }
+if ($env:TESSDATA_PREFIX -ne '.forge/tools/tesseract-fixture/tessdata') { throw 'Model directory must be relative and ASCII' }
 Write-Output 'PASS: duplicate-case environment'
 """, encoding="utf-8-sig")
         result = subprocess.run([str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)],
