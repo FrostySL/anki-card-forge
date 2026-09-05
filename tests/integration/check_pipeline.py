@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""Synthetic Docker integration checks; the host only needs Python's stdlib.
+"""Synthetic native/Docker integration checks, never using personal sources.
 
     python3 tests/integration/check_pipeline.py build
     python3 tests/integration/check_pipeline.py visual [--keep-fixtures]
 
-Images are built by CI before this runs (the existing wrappers can also build
+Select --backend native to exercise the managed Windows Python environment.
+Images are built by CI before Docker checks run (the existing wrappers also build
 missing images locally). Fixtures are never read from a user's topics. Every
 run owns new, gitignored directories; failures retain those for diagnosis.
 These checks do not contact AnkiConnect or import into a real user's collection.
 """
 import argparse
 from collections import Counter
+from contextlib import closing
 import json
 import os
 from pathlib import Path
@@ -30,6 +32,7 @@ EXPECTED_NOTES = 8
 EXPECTED_CARDS = 10
 CARD_TYPES = ["basic", "reversed", "reversed", "cloze", "cloze", "typein",
               "occlusion", "occlusion", "occlusion", "occlusion"]
+BACKEND = "docker"
 
 
 def require(condition, message):
@@ -39,14 +42,24 @@ def require(condition, message):
 
 def run(*args):
     print("+ " + " ".join(map(str, args)), flush=True)
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     result = subprocess.run(list(map(str, args)), cwd=ROOT, text=True,
+                            encoding="utf-8", errors="replace", env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     print(result.stdout, end="", flush=True)
     result.check_returncode()
     return result.stdout
 
 
+def forge(command, *args):
+    if BACKEND == "native":
+        return run(sys.executable, "tools/forge.py", "--backend", "native", command, *args)
+    return run(f"./tools/{command}.sh", *args)
+
+
 def in_container(image, script, *args):
+    if BACKEND == "native":
+        return run(sys.executable, script, *args)
     return run("docker", "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}",
                "-v", f"{ROOT}:/work", "--entrypoint", "python", image,
                script, *args)
@@ -80,7 +93,9 @@ def write_diagram(path):
 
 
 def fixture(source_dir, deck_dir):
-    image = source_dir / "blocks.png"
+    # Exercise media paths that require both quoting and Unicode handling even
+    # when this checkout itself has a simple ASCII path.
+    image = source_dir / "blocks ä.png"
     write_diagram(image)
     regions = [
         {"label": "red", "x": .10, "y": .30, "w": .25, "h": .40},
@@ -108,6 +123,15 @@ def fixture(source_dir, deck_dir):
     return path, image
 
 
+def grounded_source(extracted_dir):
+    extracted_dir.mkdir(parents=True, exist_ok=True)
+    (extracted_dir / "all-types.md").write_text(
+        "<!-- p. 1 -->\nData flows between the red and blue blocks. A data message flows.\n"
+        "JSON means JavaScript Object Notation. PNG is a three-letter format abbreviation.\n"
+        "The red block sends data to the blue block. The two colors are red and blue.\n",
+        encoding="utf-8")
+
+
 def package_snapshot(path, image):
     """Read the builder's package independently, without importing builder code."""
     with zipfile.ZipFile(path) as package:
@@ -118,7 +142,7 @@ def package_snapshot(path, image):
     with tempfile.TemporaryDirectory(prefix="acf-ci-db-") as temp:
         db = Path(temp) / "collection.anki2"
         db.write_bytes(raw)
-        with sqlite3.connect(db) as conn:
+        with closing(sqlite3.connect(db)) as conn:
             notes = conn.execute("select guid, mid, flds from notes order by guid").fetchall()
             cards = conn.execute("select n.guid, c.ord from cards c join notes n on n.id=c.nid order by n.guid,c.ord").fetchall()
             models = json.loads(conn.execute("select models from col").fetchone()[0])
@@ -133,15 +157,16 @@ def package_snapshot(path, image):
     return notes, cards
 
 
-def check_build(cards, image, deck_dir):
+def check_build(cards, image, deck_dir, extracted_dir):
     original = deck_dir / "original.apkg"
     rebuilt = deck_dir / "rebuilt.apkg"
     run(sys.executable, "tools/lint_cards.py", cards)
-    run("./tools/build.sh", cards, original)
-    output = run("./tools/validate.sh", original)
+    grounded_source(extracted_dir)
+    output = forge("finish", cards, original)
     require(re.search(r"Notes: 8\s+Cards: 10", output), "Real Anki imported unexpected counts")
+    require("No source text found" not in output, "Finish did not find its synthetic source")
     before = package_snapshot(original, image)
-    run("./tools/build.sh", cards, rebuilt)
+    forge("build", cards, rebuilt)
     require(package_snapshot(rebuilt, image) == before, "Identical rebuild changed note GUIDs, fields or ordinals")
 
     # Updating an explicitly identified note must keep its identity, while
@@ -149,7 +174,7 @@ def check_build(cards, image, deck_dir):
     data = json.loads(cards.read_text(encoding="utf-8"))
     data["cards"][0]["back"] = "A data message."
     cards.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    run("./tools/build.sh", cards, rebuilt)
+    forge("build", cards, rebuilt)
     after = package_snapshot(rebuilt, image)
     require([(g, m) for g, m, _ in before[0]] == [(g, m) for g, m, _ in after[0]],
             "A content update changed GUIDs or note types")
@@ -157,7 +182,22 @@ def check_build(cards, image, deck_dir):
     changed = [new[0] for old, new in zip(before[0], after[0]) if old != new]
     require(changed == ["ci-stable-basic"], f"Unexpected content changes: {changed}")
     run(sys.executable, "tools/deck_diff.py", original, rebuilt, "--strict")
-    run("./tools/validate.sh", rebuilt)
+    forge("validate", rebuilt)
+
+    # Exercise finish's multi-file coverage/bundling branch, independently of
+    # the fixed all-types snapshot above.
+    second = deck_dir / "supplement.cards.json"
+    second.write_text(json.dumps({"deck": "CI synthetic::Supplement", "cards": [
+        {"type": "basic", "guid": "ci-supplement", "front": "What is the output state?",
+         "back": "Ready.", "tags": ["synthetic_ci"], "source": "Synthetic fixture, page 1"}
+    ]}) + "\n", encoding="utf-8")
+    (extracted_dir / "supplement.md").write_text(
+        "<!-- p. 1 -->\nThe output state is Ready.\n", encoding="utf-8")
+    output = forge("finish", cards, second, deck_dir / "bundle.apkg")
+    require(re.search(r"Notes: 9\s+Cards: 11", output), "Bundled finish lost or duplicated cards")
+    require("coverage" in output.lower(), "Bundled finish omitted coverage")
+    require("grounding" in output.lower(), "Finish omitted source grounding")
+    require("No source text found" not in output, "Bundled finish lost source grounding")
 
 
 def check_visual(cards, image, source_dir, extracted_dir):
@@ -170,7 +210,7 @@ def check_visual(cards, image, source_dir, extracted_dir):
     session = ROOT / ":memory:.ses"
     session_existed = session.exists()
     try:
-        run("./tools/prep.sh", source_dir, "--lang", "eng", "-j", "1", "--zoom", "1.5")
+        forge("prep", source_dir, "--lang", "eng", "-j", "2", "--zoom", "1.5")
     finally:
         if not session_existed and session.is_file() and not session.is_symlink():
             if session.stat().st_size < 100 and re.fullmatch(
@@ -191,11 +231,17 @@ def check_visual(cards, image, source_dir, extracted_dir):
     for figure in figures:
         crop = Path(figure["image"])
         # The extract container records /work paths for absolute wrapper inputs.
-        if crop.is_absolute():
+        if BACKEND == "docker" and crop.is_absolute():
             crop = ROOT / crop.relative_to("/work")
         require(crop.is_file() and crop.stat().st_size > 100, f"Missing figure crop: {crop}")
     run(sys.executable, "tools/lint_cards.py", cards)
-    run("./tools/preview.sh", cards)  # Default must render BOTH themes.
+    scan = pdf.with_name(pdf.stem + "-scan.png")
+    forge("detect", scan, "--lang", "eng")
+    labels = json.loads(scan.with_suffix(".labels.json").read_text(encoding="utf-8"))
+    require(any("READY" in label["label"].upper() for label in labels), "Label OCR lost READY")
+    require(all(0 <= label[key] <= 1 for label in labels for key in ("x", "y", "w", "h")),
+            "Label coordinates are not normalized")
+    forge("preview", cards)  # Default must render BOTH themes.
     preview = cards.parent / "preview" / "all-types"
     expected = {f"{i:02d}-{kind}-{side}{theme}.png"
                 for i, kind in enumerate(CARD_TYPES, 1)
@@ -205,19 +251,43 @@ def check_visual(cards, image, source_dir, extracted_dir):
     require(all(name in index for name in expected), "Preview index omits rendered cards")
     in_container("anki-cards-preview", "tests/integration/check_images.py", preview)
 
+    formulas = cards.with_name("formulas.cards.json")
+    formulas.write_text(json.dumps({"deck": "CI synthetic::Offline formulas", "cards": [
+        {"type": "basic", "front": r"Simplify \(\frac{1}{2}+\sqrt{4}\).",
+         "back": r"\[\require{cancel}\cancel{x}+\frac{5}{2}\]", "tags": ["synthetic_ci"]}
+    ]}) + "\n", encoding="utf-8")
+    forge("preview", formulas, "--offline")
+    formula_preview = cards.parent / "preview" / "formulas"
+    report = json.loads((formula_preview / "render-report.json").read_text(encoding="utf-8"))
+    require(report["offline"] is True, "Formula preview was not offline")
+    require(len(report["math_renders"]) == 4 and
+            all(item["math_count"] > 0 for item in report["math_renders"]),
+            "A light/dark formula front/back was not typeset")
+    require(any("cancel.js" in path for path in report["mathjax_requests"]),
+            "Formula fixture did not load the local dynamic TeX extension")
+    in_container("anki-cards-preview", "tests/integration/check_images.py", formula_preview, "--formulas")
+    in_container("anki-cards-preview", "tests/integration/check_mathjax.py",
+                 "--output", formula_preview / "missing-extension-check.json")
+
 
 def main():
+    global BACKEND
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("build", "visual"))
+    parser.add_argument("--backend", choices=("docker", "native"), default="docker")
     parser.add_argument("--keep-fixtures", action="store_true", help="Keep successful synthetic outputs for inspection")
     args = parser.parse_args()
-    if os.name != "posix":
+    BACKEND = args.backend
+    if BACKEND == "docker" and os.name != "posix":
         parser.error("Run this check in Linux/WSL, where the Docker shell wrappers run.")
     os.chdir(ROOT)
     for parent in ("sources", "decks", "extracted"):
         Path(parent).mkdir(exist_ok=True)
-    source_dir = Path(tempfile.mkdtemp(prefix=f"_ci-{args.mode}-", dir="sources")).resolve().relative_to(ROOT)
-    deck_dir = Path("decks") / (source_dir.name + "_rebuild")
+    source_dir = Path(tempfile.mkdtemp(prefix=f"_ci-{args.mode}-", suffix="_rebuild", dir="sources")).resolve().relative_to(ROOT)
+    deck_dir = Path("decks") / source_dir.name
     extracted_dir = Path("extracted") / source_dir.name
     deck_dir.mkdir()
     owned = (source_dir, deck_dir, extracted_dir)
@@ -226,11 +296,11 @@ def main():
     try:
         cards, image = fixture(source_dir, deck_dir)
         if args.mode == "build":
-            check_build(cards, image, deck_dir)
+            check_build(cards, image, deck_dir, extracted_dir)
         else:
             check_visual(cards, image, source_dir, extracted_dir)
         success = True
-        print(f"PASS: {args.mode} integration ({time.monotonic() - start:.1f}s)", flush=True)
+        print(f"PASS: {BACKEND} {args.mode} integration ({time.monotonic() - start:.1f}s)", flush=True)
     finally:
         if success and not args.keep_fixtures:
             for path in owned:

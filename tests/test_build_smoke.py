@@ -16,7 +16,9 @@ from _tools import load
 try:
     bd = load("build_deck")
     HAVE_GENANKI = True
-except Exception:
+except ModuleNotFoundError as error:
+    if error.name != "genanki":
+        raise
     HAVE_GENANKI = False
 
 

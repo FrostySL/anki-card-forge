@@ -18,6 +18,7 @@ class TestPrep(unittest.TestCase):
             tools = root / "tools"
             tools.mkdir()
             (tools / "prep.sh").write_text(PREP.read_text(encoding="utf-8"), encoding="utf-8")
+            shutil.copy2(PREP.parent / "forge.py", tools / "forge.py")
             for name in ("extract", "figextract"):
                 script = tools / f"{name}.sh"
                 script.write_text(

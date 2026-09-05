@@ -48,6 +48,17 @@ Run the fast tests in Linux or WSL:
 ./tools/test.sh
 ```
 
+On Windows 11 x64, run `.\forge.cmd setup`, then `.\forge.cmd test`.
+The managed environment includes the real builder and decoder dependencies.
+For a cold native acceptance test, run from a clean source copy:
+
+```powershell
+powershell -NoProfile -File tests/integration/windows_acceptance.ps1 -ReportDir C:\forge-reports
+```
+
+See the integration guide for its clean
+archive, Sandbox and live Anki checks; report those results separately.
+
 These use Python's standard library. Build smoke tests need `genanki` and skip
 when it is unavailable; modern Anki package decoding also needs `zstd` or Python
 `zstandard`. CI installs the dependencies to exercise those paths.
@@ -76,8 +87,8 @@ are generated and contain no personal source material. Rendering checks do not
 replace visually inspecting changed card layouts; use the preview workflow in
 [AGENTS.md](AGENTS.md) for that.
 
-[CI](.github/workflows/ci.yml) runs the full Python suite on Linux, focused
-AnkiConnect tests on Windows, the linters, the public-file policy, and the Docker
+[CI](.github/workflows/ci.yml) runs the full Python suite on Linux, a cold native
+Windows setup and pipeline, the linters, the public-file policy, and the Docker
 build check. Visual integration runs when relevant files change. The required
 `CI passed` check combines these results, including visual integration whenever
 it applies.

@@ -1,0 +1,20 @@
+[project]
+name = "anki-card-forge"
+version = "0.1.0"
+description = "Local, provider-independent source preparation and Anki package tools"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "anki==26.5",
+  "certifi==2026.7.22",
+  "genanki==0.13.1",
+  "Pillow==12.2.0",
+  "playwright==1.60.0",
+  "PyMuPDF==1.27.2.3",
+  "pymupdf4llm==1.27.2.3",
+  "pytesseract==0.3.13",
+  "zstandard==0.25.0",
+]
+
+[tool.uv]
+package = false
+required-version = "==0.12.10"

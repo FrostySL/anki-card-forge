@@ -6,6 +6,10 @@ Use the source and wishes from the user's request.
 
 Read `AGENTS.md` and `skills/card-authoring/SKILL.md` first and follow their rules. Task steps:
 
+On Windows, check `.\forge.cmd doctor`, then run `.\forge.cmd setup` if needed.
+Use `.\forge.cmd prep`, `finish`, `preview` and `anki` in place of the Linux
+commands below. All remaining arguments and quality gates are the same.
+
 1. If `sources/<topic>/context.md` exists (any spelling, e.g. `Kontext.md`),
    read it FIRST — it steers selection and emphasis.
 2. If the `extracted/<topic>/` mirror for the source is missing or stale, run

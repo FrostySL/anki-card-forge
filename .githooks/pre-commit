@@ -1,7 +1,17 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # PUBLIC-repository file guard, shared with CI. Activate once per clone:
 #   git config core.hooksPath .githooks
-set -euo pipefail
+set -eu
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 
 PROJECT_DIR="$(git rev-parse --show-toplevel)"
-exec python3 "$PROJECT_DIR/tools/check_repo_files.py" --staged
+for interpreter in "$PROJECT_DIR/.venv/Scripts/python.exe" "$PROJECT_DIR/.venv/bin/python"; do
+  if [ -x "$interpreter" ]; then
+    exec "$interpreter" "$PROJECT_DIR/tools/check_repo_files.py" --staged
+  fi
+done
+if command -v python3 >/dev/null 2>&1; then
+  exec python3 "$PROJECT_DIR/tools/check_repo_files.py" --staged
+fi
+echo "Commit guard needs Python. Run forge.cmd setup on Windows or install Python 3.10+ on Linux." >&2
+exit 2

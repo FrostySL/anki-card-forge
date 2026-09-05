@@ -1,5 +1,8 @@
-# The images COPY nothing — the project is mounted to /work at runtime (see the
-# Dockerfiles). So the build context can be empty: this keeps `docker build` from
-# streaming the whole repo (100+ MB, including your private sources/) to the
-# daemon. Only the Dockerfile itself is read.
+# Only the preview image's pinned asset helper enters the build context.
+# Sources, decks, local runtimes and all other project content stay out.
+# Runtime scripts still come from the /work mount.
 *
+!tools/
+tools/*
+!tools/runtime_assets.py
+!tools/runtime-manifest.json

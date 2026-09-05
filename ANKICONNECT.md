@@ -21,6 +21,17 @@ separate; see [Privacy](README.md#privacy-local-files-and-your-ai-service).
 
 ## Setup (once)
 
+On native Windows, first run `.\forge.cmd setup` in the project. Use
+`.\forge.cmd anki` in place of `python3 tools/anki_connect.py` in every example
+below. The managed Python includes `zstandard` and connects directly to Windows
+Anki; no WSL path conversion or separate Python installation is needed:
+
+```powershell
+.\forge.cmd anki ping
+.\forge.cmd anki push decks\Biology\respiration.apkg --dry-run
+.\forge.cmd anki export "Biology::Respiration" decks\Biology\export.apkg
+```
+
 1. Open Anki desktop.
 2. **Tools → Add-ons → Get Add-ons…** (German UI: *Extras → Erweiterungen →
    Erweiterungen herunterladen…*), enter the code **`2055492159`**, confirm.
@@ -79,6 +90,13 @@ commands. Backups still live in the project's `decks/_anki-backups/` directory.
 Sync remains a separate, explicit action after checking the imported deck.
 
 ## Commands
+
+Export decoding preserves basic, reversed basic, cloze and type-in cards,
+including their GUIDs and media. The repository's image-occlusion notes are
+currently skipped by the decoder with a warning; do not use export → decode →
+rebuild for learned image-occlusion decks. Their normal build, preview and
+validation paths remain available. A mixed export must be checked for skipped
+notes before any rework import or prune.
 
 ```bash
 python3 tools/anki_connect.py ping                          # connectivity check

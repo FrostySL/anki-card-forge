@@ -22,7 +22,8 @@ class TestRepositoryFileGuard(unittest.TestCase):
         # Git may have launched the test suite from a real checkout's hook.
         self.env = {key: value for key, value in os.environ.items()
                     if not key.upper().startswith("GIT_")}
-        self.env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull})
+        self.env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+                         "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"})
         self.git("init", "--quiet", "--template=", ".")
         self.git("config", "user.name", "Guard Test")
         self.git("config", "user.email", "guard@example.invalid")

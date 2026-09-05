@@ -76,6 +76,7 @@ def _cards_files(paths):
 
 def _sibling_md(cards_path):
     """The matching extracted/ .md — exact or by prefix (cards 'short', .md 'long')."""
+    cards_path = os.fspath(cards_path).replace(os.sep, "/")
     exact = cards_path.replace("decks/", "extracted/", 1).replace(".cards.json", ".md")
     if os.path.isfile(exact):
         return exact
@@ -85,7 +86,7 @@ def _sibling_md(cards_path):
              if not p.endswith(".figures.md")]
     pref = [p for p in cands if os.path.basename(p)[:-3].startswith(stem)
             or stem.startswith(os.path.basename(p)[:-3])]
-    return pref[0] if len(pref) == 1 else None
+    return pref[0].replace(os.sep, "/") if len(pref) == 1 else None
 
 
 def _source_pages(cards_path):

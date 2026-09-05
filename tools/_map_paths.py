@@ -41,7 +41,11 @@ def map_arg(arg, root):
         return arg
     # realpath resolves symlinks and a non-existent leaf (output paths) alike.
     abs_path = os.path.realpath(arg)
-    if abs_path != root and not abs_path.startswith(root + os.sep):
+    try:
+        inside = os.path.normcase(os.path.commonpath([abs_path, root])) == os.path.normcase(root)
+    except ValueError:
+        inside = False
+    if not inside:
         sys.stderr.write(
             f"Error: '{arg}' is outside the project ({root}).\n"
             "       The tools operate on files inside the project "
@@ -49,7 +53,7 @@ def map_arg(arg, root):
             "       Use a path within it, e.g. decks/<topic>/<name>.cards.json.\n"
         )
         raise SystemExit(2)
-    return os.path.relpath(abs_path, root)
+    return os.path.relpath(abs_path, root).replace(os.sep, "/")
 
 
 def main(argv):

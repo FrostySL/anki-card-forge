@@ -43,6 +43,7 @@ Anki file names).
 Runs on the host (stdlib + zstd only) — NO Docker needed.
 """
 import argparse
+from _filenames import unique_stems, unique_media_names
 import io
 import json
 import os
@@ -172,15 +173,22 @@ def extract_media(apkg_path, outdir):
     media_dir = os.path.join(outdir, "media")
     with zipfile.ZipFile(apkg_path) as z:
         members = set(z.namelist())
-        for member, name in sorted(_media_map(z).items()):
-            base = os.path.basename(name)  # never let a name escape media/
+        entries = sorted(_media_map(z).items())
+        bases = [name.replace("\\", "/").rsplit("/", 1)[-1]
+                 for member, name in entries if member in members]
+        if len(bases) != len(set(bases)):
+            raise ValueError("Media entries have identical base names; refusing to overwrite decoded files.")
+        filenames = unique_media_names(sorted({name.replace("\\", "/").rsplit("/", 1)[-1]
+                                               for _, name in entries}))
+        for member, name in entries:
+            base = name.replace("\\", "/").rsplit("/", 1)[-1]
             if not base or member not in members:
                 continue
             data = z.read(member)
             if data[:4] == _ZSTD_MAGIC:
                 data = _decompress_zstd(data)
             os.makedirs(media_dir, exist_ok=True)
-            path = os.path.join(media_dir, base)
+            path = os.path.join(media_dir, filenames[base])
             with open(path, "wb") as fh:
                 fh.write(data)
             out[base] = path
@@ -276,17 +284,9 @@ def extract(con):
 def write_cards_json(by_deck, outdir):
     os.makedirs(outdir, exist_ok=True)
     files = []
-    used = set()
+    names = unique_stems(sorted(by_deck))
     for deck, cards in sorted(by_deck.items()):
-        safe = re.sub(r"[^\w.+-]+", "_", deck).strip("_") or "deck"
-        # Different deck names can sanitize identically ("A::B" and "A B") —
-        # suffix instead of silently overwriting the first file.
-        cand, n = safe, 1
-        while cand in used:
-            n += 1
-            cand = f"{safe}_{n}"
-        used.add(cand)
-        path = os.path.join(outdir, cand + ".cards.json")
+        path = os.path.join(outdir, names[deck] + ".cards.json")
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"deck": deck, "cards": cards}, fh, ensure_ascii=False, indent=1)
         files.append((path, deck, len(cards)))
@@ -330,7 +330,8 @@ def main(argv=None):
     print(f"\ncards.json in: {outdir}")
     quoted = " ".join(f'"{p}"' for p, _, _ in files)
     print("Rebuild (GUIDs/progress preserved), e.g.:")
-    print(f'  ./tools/build.sh {quoted} "out.apkg"')
+    starter = r".\forge.cmd build" if os.name == "nt" else "./tools/build.sh"
+    print(f'  {starter} {quoted} "out.apkg"')
     return 0
 
 

@@ -48,7 +48,9 @@ jobs:
               paths = subprocess.check_output(
                   ["git", "diff", "--name-only", "-z", base, "HEAD"]
               ).decode("utf-8", errors="surrogateescape").split("\0")
-              patterns = ("Dockerfile*", "tools/*", "tests/integration/*", ".github/workflows/*")
+              patterns = ("Dockerfile*", "tools/*", "tests/integration/*", ".github/workflows/*",
+                          "forge*", "pyproject.toml", "uv.lock", ".python-version",
+                          ".dockerignore", ".gitattributes")
               visual = any(fnmatch.fnmatchcase(path, pattern)
                            for path in paths for pattern in patterns)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
@@ -76,18 +78,44 @@ jobs:
         run: ./tools/test.sh
 
   windows:
-    name: Windows AnkiConnect tests
+    name: Windows native bootstrap and integration
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      # No setup-python, uv action, or dependency cache: the public starter must
+      # provision everything itself. A source archive also proves Git optional.
+      - name: Cold bootstrap and offline repeat from a source-only archive
+        shell: pwsh
+        run: |
+          $nativeRoot = Join-Path $env:RUNNER_TEMP 'Anki Test ä'
+          $archive = Join-Path $env:RUNNER_TEMP 'anki-source.zip'
+          $reports = Join-Path $env:RUNNER_TEMP 'anki-native-reports'
+          git archive --format=zip "--output=$archive" HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot archive candidate commit.' }
+          Expand-Archive -LiteralPath $archive -DestinationPath $nativeRoot
+          "ACF_NATIVE_PROJECT=$nativeRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & (Join-Path $nativeRoot 'tests/integration/windows_acceptance.ps1') -ReportDir $reports
+      - name: Exercise native repository and commit guards with Git available
+        shell: pwsh
+        run: |
+          $python = Join-Path $env:ACF_NATIVE_PROJECT '.venv/Scripts/python.exe'
+          $env:PATH = (Split-Path $python) + ';' + $env:PATH
+          $env:PYTHONUTF8 = '1'
+          & $python -m unittest discover -s tests -p test_repo_files.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Repository file guard tests failed.' }
+          & $python -m unittest discover -s tests -p test_commit_guard.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Commit guard tests failed.' }
+      - name: Keep native setup provenance and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          python-version: "3.12"
-      - name: Test Windows file handling with mocked AnkiConnect
-        run: python -m unittest discover -s tests -p test_anki_connect.py -v
+          name: windows-native-diagnostics
+          path: ${{ runner.temp }}/anki-native-reports/
+          retention-days: 5
+          if-no-files-found: warn
 
   shellcheck:
     name: ShellCheck

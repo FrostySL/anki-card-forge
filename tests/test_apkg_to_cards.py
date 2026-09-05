@@ -19,6 +19,11 @@ import unittest
 import zipfile
 from unittest import mock
 
+try:
+    import zstandard
+except ImportError:
+    zstandard = None
+
 from _tools import load
 
 a2c = load("apkg_to_cards")
@@ -207,10 +212,13 @@ class TestMedia(unittest.TestCase):
             with open(media["b.jpg"], "rb") as fh:
                 self.assertEqual(fh.read(), b"B")
 
-    @unittest.skipUnless(shutil.which("zstd"), "zstd CLI not available")
+    @unittest.skipUnless(zstandard or shutil.which("zstd"), "zstandard and zstd CLI unavailable")
     def test_zstd_compressed_media_file_is_decompressed(self):
-        blob = subprocess.run(["zstd", "-c"], input=b"PNGDATA",
-                              capture_output=True).stdout
+        if zstandard:
+            blob = zstandard.ZstdCompressor().compress(b"PNGDATA")
+        else:
+            blob = subprocess.run(["zstd", "-c"], input=b"PNGDATA",
+                                  capture_output=True, check=True).stdout
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "in.apkg")
             with zipfile.ZipFile(path, "w") as z:
