@@ -13,7 +13,7 @@ Usually invoked via tools/build.sh inside the Docker container, e.g.:
     ./tools/build.sh decks/text.cards.json decks/images.cards.json decks/full.apkg
 
 Card types: "basic", "cloze", "typein", "occlusion" (image with hidden regions).
-JSON format: see CLAUDE.md.
+JSON format: see AGENTS.md.
 """
 import hashlib
 import html
@@ -75,13 +75,19 @@ th { background: var(--th); }
   position: absolute; box-sizing: border-box;
   background: #ffd54f; border: 1px solid #c8a415;
 }
+/* Mark the queried region without relying on color alone. */
+.io-mask-target {
+  background: #ef9a9a; border: 2px solid #b71c1c; color: #5d1010;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: bold; font-size: .8em; line-height: 1; overflow: hidden;
+}
 .io-answer {
   position: absolute; box-sizing: border-box;
   border: 2px solid #e53935; background: rgba(229,57,53,.08);
 }
 .io-answer-label {
   margin-top: .6em; text-align: center;
-  color: #c62828; font-weight: bold; font-size: 1.05em;
+  color: inherit; font-weight: bold; font-size: 1.05em;
 }
 
 /* --- Collapsed box on the back: deep dive & source (elaborative feedback) --- */
@@ -267,7 +273,14 @@ def _occlusion_html(img_src, regions, target, mode, reveal, header, extra):
             masked = (i != target) if mode == "hide-all" else False
 
         if masked:
-            parts.append(f'<div class="io-mask" style="{pos}"></div>')
+            if not reveal and mode == "hide-all" and i == target:
+                parts.append(
+                    f'<div class="io-mask io-mask-target" style="{pos}" '
+                    'role="img" aria-label="Question region">'
+                    '<span aria-hidden="true">?</span></div>'
+                )
+            else:
+                parts.append(f'<div class="io-mask" style="{pos}"></div>')
         elif reveal and i == target:
             # Outline only – NO text over the image (it would overlap the label
             # already printed in the image). The answer goes below as a caption.

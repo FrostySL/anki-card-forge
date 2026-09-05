@@ -67,5 +67,5 @@ else
 fi
 
 echo ""
-echo "Setup complete. Next: drop a source into sources/<topic>/ and ask Claude"
-echo "to make cards from it (or run  /forge sources/<topic>/<file>  in Claude Code)."
+echo "Setup complete. Next: drop a source into sources/<topic>/ and open your AI assistant."
+echo "Ask it to read AGENTS.md and follow workflows/forge.md for your source."

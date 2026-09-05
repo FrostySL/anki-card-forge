@@ -11,10 +11,11 @@ lint/preview/validate — works exactly the same without AnkiConnect; you simply
 import the `.apkg` by double-clicking it or via **File → Import** in Anki. If
 you never install the add-on, nothing in this repo will miss it.
 
-Why AnkiConnect (and not a headless AnkiWeb login)? Everything runs as plain
-HTTP against `127.0.0.1:8765` on your own machine: **no password, no API key,
-no cloud** — the only thing the tool can talk to is the Anki window you have
-open. That is the right trust model for a public repo.
+The tool talks to the running Anki app over plain HTTP, by default at
+`127.0.0.1:8765` on your machine. It does not handle AnkiWeb passwords or
+provider API keys. An explicit `sync` command asks Anki to send collection
+data to AnkiWeb. Your AI assistant's handling of any files it reads is
+separate; see [Privacy](README.md#privacy-local-files-and-your-ai-service).
 
 ---
 
@@ -34,11 +35,48 @@ open. That is the right trust model for a public repo.
    On the very first contact AnkiConnect may show a permission dialog inside
    Anki — click **Yes**.
 
-No Docker, no pip: `tools/anki_connect.py` is pure Python stdlib. The only
-runtime requirement is that **Anki is open** while you use it.
+Keep **Anki open** while you use the tool. HTTP commands such as `ping` need
+only Python's standard library, with no Docker. Commands that inspect modern
+Anki exports/backups (including the backup comparison during `push`) also need
+Python `zstandard` or the `zstd` CLI in the environment running the tool.
 
 If AnkiConnect listens somewhere else (changed add-on config, different port),
 point the tool at it: `ANKICONNECT_URL=http://127.0.0.1:8765` (default).
+
+### WSL2 project with Anki on Windows
+
+Under [WSL's default NAT networking](https://learn.microsoft.com/en-us/windows/wsl/networking),
+`127.0.0.1` from Linux refers to the Linux environment. If Anki runs on Windows,
+run `tools/anki_connect.py` with **Windows Python** so it reaches the Windows
+loopback server. Keep AnkiConnect at `127.0.0.1:8765`; this approach requires no
+firewall or add-on binding changes.
+
+From Bash in the WSL project directory, set `WINPY` to the WSL path of your
+installed Windows `python.exe` (replace the placeholder below). Install
+`zstandard` in that interpreter for modern Anki exports and backup comparisons.
+Convert the script path and every package path to Windows paths with `wslpath -w`:
+
+```bash
+WINPY='/mnt/c/path/to/python.exe'
+"$WINPY" -m pip install --user zstandard
+ANKI_SCRIPT=$(wslpath -w "$PWD/tools/anki_connect.py")
+"$WINPY" "$ANKI_SCRIPT" ping
+"$WINPY" "$ANKI_SCRIPT" decks
+```
+
+Build and validate in WSL with `finish.sh` **without `--push`**, then import
+separately through Windows Python:
+
+```bash
+./tools/finish.sh decks/Biology/respiration.cards.json
+"$WINPY" "$ANKI_SCRIPT" push "$(wslpath -w "$PWD/decks/Biology/respiration.apkg")"
+# To export an existing deck with scheduling:
+"$WINPY" "$ANKI_SCRIPT" export "Biology::Respiration" "$(wslpath -w "$PWD/decks/Biology/export.apkg")"
+```
+
+Use the same Windows interpreter for `mirror`, `restore`, and other AnkiConnect
+commands. Backups still live in the project's `decks/_anki-backups/` directory.
+Sync remains a separate, explicit action after checking the imported deck.
 
 ## Commands
 
@@ -120,8 +158,9 @@ skipped); with arguments only the named decks. Per deck you get:
   mirror is greppable/diffable (e.g. to check for duplicate cards before
   authoring a new deck).
 
-The mirror folder is gitignored and additionally blocked by the commit guard —
-it stays on your machine.
+The mirror is stored locally; its folder is gitignored and additionally
+blocked by the commit guard. These protections prevent commits, not access
+by your AI assistant or other software.
 
 ### `update-note <nid> --field "Name=<html>"`
 
@@ -179,7 +218,7 @@ Anki *and* is touched by the package:
 decks/_anki-backups/<YYYYMMDD-HHMMSS>/<Deck>.apkg     # with scheduling
 ```
 
-- Gitignored — backups never leave your machine.
+- Stored locally and gitignored; the commit guard also blocks committing them.
 - The **10 newest** timestamp folders are kept, older ones are pruned
   automatically.
 - **Restore = push the backup.** The `restore` subcommand does that for you:
@@ -215,7 +254,7 @@ collection:
 | Broken state reaching AnkiWeb/phone | Sync only ever runs as an explicit command, after the import can be checked. |
 
 For the rules the AI itself follows (never `--no-backup`/`--prune`/`sync`
-unasked, never weaken the allowlist), see `CLAUDE.md`.
+unasked, never weaken the allowlist), see [AGENTS.md](AGENTS.md).
 
 ## Typical workflows
 

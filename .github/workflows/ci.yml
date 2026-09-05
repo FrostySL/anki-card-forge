@@ -4,48 +4,239 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
-    name: tests (stdlib + genanki)
+  repository:
+    name: Repository files
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      visual: ${{ steps.changes.outputs.visual }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      # genanki lets the build_deck smoke tests run instead of skipping; zstd
-      # covers the modern .apkg decompression path. Everything else is stdlib.
+      - name: Check tracked files for personal material
+        run: python3 tools/check_repo_files.py --tracked
+      - name: Select visual integration checks
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          python3 - <<'PY'
+          import fnmatch
+          import os
+          import subprocess
+
+          base = os.environ.get("BASE_SHA", "")
+          visual = os.environ["MANUAL_RUN"] == "true" or not base or set(base) == {"0"}
+          if not visual:
+              paths = subprocess.check_output(
+                  ["git", "diff", "--name-only", "-z", base, "HEAD"]
+              ).decode("utf-8", errors="surrogateescape").split("\0")
+              patterns = ("Dockerfile*", "tools/*", "tests/integration/*", ".github/workflows/*")
+              visual = any(fnmatch.fnmatchcase(path, pattern)
+                           for path in paths for pattern in patterns)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"visual={str(visual).lower()}\n")
+          print(f"Run PDF/OCR/preview integration: {visual}")
+          PY
+
+  test:
+    name: Python tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
       - name: Install test dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install "genanki==0.13.1"
-          sudo apt-get update && sudo apt-get install -y zstd
-      - name: Run the test suite
+          python -m pip install "genanki==0.13.1"
+          sudo apt-get update
+          sudo apt-get install -y zstd
+      - name: Run the complete test suite
         run: ./tools/test.sh
 
-  shellcheck:
-    name: shellcheck (shell scripts + commit guard)
-    runs-on: ubuntu-latest
+  windows:
+    name: Windows AnkiConnect tests
+    runs-on: windows-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      # shellcheck is preinstalled on ubuntu-latest runners. -x follows the
-      # sourced tools/_dockerlib.sh so the wrappers are checked with it inlined.
-      - name: Lint shell scripts
-        run: shellcheck -x tools/*.sh .githooks/pre-commit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Test Windows file handling with mocked AnkiConnect
+        run: python -m unittest discover -s tests -p test_anki_connect.py -v
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: shellcheck -x tools/*.sh .githooks/pre-commit
+      - name: Lint GitHub Actions workflows
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
 
   hadolint:
-    name: hadolint (Dockerfiles)
+    name: Dockerfile lint
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
-      # Run hadolint from its own image (no marketplace action to keep in sync).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Lint Dockerfiles
         run: |
           for df in Dockerfile Dockerfile.*; do
-            echo "== $df =="
-            docker run --rm -i hadolint/hadolint hadolint - < "$df"
+            docker run --rm -i hadolint/hadolint:v2.15.1 hadolint - < "$df"
           done
+
+  build:
+    name: Docker and Anki integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build package builder
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          tags: anki-cards
+          load: true
+          push: false
+          cache-from: type=gha,scope=builder
+          cache-to: type=gha,mode=max,scope=builder
+      - name: Build Anki validator
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.validate
+          tags: anki-cards-validate
+          load: true
+          push: false
+          cache-from: type=gha,scope=validate
+          cache-to: type=gha,mode=max,scope=validate
+      - name: Build and validate synthetic cards
+        run: python3 tests/integration/check_pipeline.py build
+      - name: Keep synthetic outputs for failure diagnosis
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-diagnostics
+          path: decks/_ci-build-*_rebuild/
+          retention-days: 5
+          if-no-files-found: ignore
+
+  visual:
+    name: PDF OCR and preview integration
+    needs: repository
+    if: needs.repository.outputs.visual == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build PDF extractor
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.extract
+          tags: anki-cards-extract
+          load: true
+          push: false
+          cache-from: type=gha,scope=extract
+          cache-to: type=gha,mode=max,scope=extract
+      - name: Build preview renderer
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.preview
+          tags: anki-cards-preview
+          load: true
+          push: false
+          cache-from: type=gha,scope=preview
+          cache-to: type=gha,mode=max,scope=preview
+      - name: Exercise PDF preparation OCR and light/dark previews
+        run: python3 tests/integration/check_pipeline.py visual
+      - name: Keep synthetic outputs for failure diagnosis
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: visual-diagnostics
+          path: |
+            decks/_ci-visual-*_rebuild/
+            extracted/_ci-visual-*/
+          retention-days: 5
+          if-no-files-found: ignore
+
+  required:
+    name: CI passed
+    if: always()
+    needs: [repository, test, windows, shellcheck, hadolint, build, visual]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # One stable required status; an unexpected skip or failed prerequisite
+      # must fail this gate, even when a downstream integration job is skipped.
+      - name: Require successful checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          jobs = json.loads(os.environ["RESULTS"])
+          failed = [name for name, job in jobs.items()
+                    if name != "visual" and job["result"] != "success"]
+          visual_flag = jobs["repository"]["outputs"].get("visual")
+          if visual_flag not in {"true", "false"}:
+              raise SystemExit("Missing or invalid visual-check selection.")
+          visual_needed = visual_flag == "true"
+          expected = "success" if visual_needed else "skipped"
+          if jobs["visual"]["result"] != expected:
+              failed.append("visual")
+          if failed:
+              raise SystemExit("Required checks failed or were cancelled/skipped: " + ", ".join(failed))
+          print("All required checks passed.")
+          PY

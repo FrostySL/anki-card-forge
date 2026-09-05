@@ -3,8 +3,9 @@
 [![CI](https://github.com/FrostySL/anki-card-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/FrostySL/anki-card-forge/actions/workflows/ci.yml)
 
 Turn **lecture scripts, books, slides and notes** into high-quality **Anki
-flashcards** — together with [Claude Code](https://claude.com/claude-code).
-Works for **any subject** and produces cards in **any language you ask for**.
+flashcards** — together with an AI assistant of your choice.
+The workflow is **AI-provider independent**, works for **any subject**, and
+produces cards in **any language you ask for**.
 
 <p align="center">
   <img src="docs/img/example-review.gif" width="760"
@@ -13,28 +14,33 @@ Works for **any subject** and produces cards in **any language you ask for**.
 
 <p align="center"><i>A deck forged from the Wikipedia article on electric current,
 in review — including image-occlusion cards on the article's circuit diagram.
+This example was recorded with Claude Code.
 <a href="#example-one-prompt-start-to-finish">Made with one prompt ↓</a></i></p>
 
 ## The idea
 
-The AI is Claude itself: you drop a file into `sources/<topic>/`, tell Claude in
-the chat *"make cards from this"*, Claude reads the file, writes the cards
-following an evidence-based methodology (the `card-authoring` skill), checks its
-own work, and a small Docker container packs everything into a ready-to-import
-`.apkg` file. **No external LLM call, no API key** — Docker only does the dumb
-"card JSON → `.apkg`" part via the [`genanki`](https://github.com/kerrickstaley/genanki)
-library.
+You drop a file into `sources/<topic>/` and ask your AI assistant to make cards
+from it. The assistant reads the source, writes card JSON following the shared
+`card-authoring` methodology, and checks its work. The local tools extract
+sources, render previews, and pack the JSON into a ready-to-import `.apkg`
+using [`genanki`](https://github.com/kerrickstaley/genanki).
+
+**The repository makes no LLM API calls and requires no provider API key.**
+Choose the assistant, model, and any credentials or subscription in your own
+AI tool. The interface between the assistant and the build pipeline is ordinary
+files and shell commands; switching providers does not change the card format
+or Python/Docker tools.
 
 ```
-sources/<topic>/script.pdf  →  (Claude reads + authors cards)  →  decks/<topic>/script.apkg  →  import into Anki
+sources/<topic>/script.pdf  →  (your assistant authors card JSON)  →  decks/<topic>/script.apkg  →  import into Anki
 ```
 
 What makes the cards good rather than just numerous:
 
 - **Evidence-based card rules** — atomicity, active retrieval, no hint leaks,
-  format by knowledge type (see `.claude/skills/card-authoring/`, with sources).
-- **Grounding check** — a heuristic verifies that every answer actually appears
-  in the source text, so invented "facts" surface before you learn them.
+  format by knowledge type (see [the methodology](skills/card-authoring/SKILL.md), with sources).
+- **Grounding check** — a heuristic flags answers that may lack support in the
+  source text; the assistant reviews those flags against the source.
 - **Visual self-review** — cards are rendered as PNGs (light **and** Anki night
   mode) and inspected before delivery; image-occlusion masks are checked visually.
 - **Real-engine validation** — every `.apkg` is imported and rendered with Anki's
@@ -42,7 +48,9 @@ What makes the cards good rather than just numerous:
 
 ## Example: one prompt, start to finish
 
-The deck in the GIF above was made like this — a real, unedited session.
+The deck in the GIF above was made like this — a real, unedited session
+recorded with Claude Code. The screenshots document that example; the shared
+workflow below can be used with other assistants.
 
 **1. Get a source.** Anything that fits in a PDF or text file. Here: the
 Wikipedia article [Electric current](https://en.wikipedia.org/wiki/Electric_current)
@@ -55,7 +63,7 @@ Wikimedia Commons) for the image-occlusion cards.
 
 ![The PDF placed at sources/Physics/electric_current.pdf](docs/img/example-2-sources-folder.png)
 
-**3. Ask.** One sentence in the Claude Code chat:
+**3. Ask.** In this recording, one sentence in the Claude Code chat:
 
 ![Prompt: Make 10 English Anki cards from sources/Physics/electric_current.pdf with image occlusion. Import the deck into Anki via AnkiConnect.](docs/img/example-3-prompt.png)
 
@@ -75,13 +83,44 @@ cards masking *v*, *i* and *R* on the circuit — fresh out of the forge.
 
 - **[Anki](https://apps.ankiweb.net/)** (the flashcard app you study in — desktop,
   or AnkiMobile/AnkiDroid) to import and review the generated decks
-- **[Claude Code](https://claude.com/claude-code)** (the AI that writes the cards)
-- **Docker** (packs cards into `.apkg`, renders previews, runs OCR)
+- **An AI assistant** that can read and write project files and run shell
+  commands. Image viewing is needed for visual source material, image-occlusion
+  cards, and visual preview checks; if unavailable, inspect those images
+  yourself and do not treat the visual review as complete.
+- **Git, Bash, and Python 3.10+** on the host (on Windows, use a Bash
+  environment such as WSL).
+- **Docker** with a running daemon (packs cards into `.apkg`, renders previews,
+  runs OCR).
 - *Optional:* the **AnkiConnect** add-on (code `2055492159`) to push decks into
   Anki without the manual import dance — see [ANKICONNECT.md](ANKICONNECT.md).
   Everything works without it; it just saves clicks.
 
-Nothing else — all Python dependencies live inside the Docker images.
+The main build, extraction, and rendering dependencies live inside Docker.
+Host-side lint, grounding, and coverage checks use Python's standard library.
+Reading modern Anki exports/backups additionally needs Python `zstandard` or
+the `zstd` CLI; see [AnkiConnect setup](ANKICONNECT.md#setup-once).
+A chat assistant without file/shell access can still help author JSON, but you
+must save the files and run the tools yourself.
+
+### Docker on Linux and WSL2
+
+You can install **Docker Engine directly in Linux**, including Ubuntu inside
+WSL2; Docker Desktop is optional. Follow the official
+[Docker Engine installation for Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
+and [Linux post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/)
+so your normal user can run Docker. Run this project's Bash, Python, and Docker
+build commands inside that Linux environment, from the project directory.
+Before running `setup.sh`, this must succeed without `sudo`:
+
+```bash
+docker info
+```
+
+With [systemd enabled in WSL2](https://learn.microsoft.com/en-us/windows/wsl/systemd)
+and the Docker service enabled, Docker starts when the Ubuntu distribution
+starts. This does not launch Ubuntu at Windows startup or keep WSL running
+indefinitely. If Anki runs on Windows while the project runs in WSL, use the
+[Windows Anki connection instructions](ANKICONNECT.md#wsl2-project-with-anki-on-windows).
 
 ## Quick start
 
@@ -100,8 +139,11 @@ success. Prefer to do it by hand? `docker build -t anki-cards .` and
 
 1. Put a source into `sources/<topic>/` (PDF, text, Markdown …) — one subfolder
    per topic, e.g. `sources/Biology/`.
-2. Ask Claude in the chat: **"Create Anki cards from sources/Biology/respiration.pdf."**
-3. Claude produces `decks/Biology/respiration.apkg`.
+2. Open the project in your AI assistant and give it the portable start prompt
+   below. This explicitly loads the guide even if the assistant does not
+   automatically read `AGENTS.md`.
+3. The assistant produces `decks/Biology/respiration.apkg` after running the
+   quality checks.
 4. **Import into Anki:** double-click the `.apkg`, or in Anki open **File → Import**
    and pick it. The cards land in a deck named after the topic (e.g. `Biology`),
    ready to study — scheduling, subdecks and styling are already baked in. On phones,
@@ -109,8 +151,44 @@ success. Prefer to do it by hand? `docker build -t anki-cards .` and
    (Tired of the import dialog? The optional [AnkiConnect route](ANKICONNECT.md)
    imports and syncs for you.)
 
+### What to tell your AI assistant
+
+Copy this prompt into a new conversation with your assistant. Replace the
+example source path with your own file and add any wishes about language,
+scope, or card count. This explicitly tells the assistant which instructions
+to read, so the workflow does not depend on automatic instruction discovery:
+
+```text
+Read AGENTS.md, skills/card-authoring/SKILL.md, and workflows/forge.md first.
+Follow those instructions to create Anki cards from
+sources/Biology/respiration.pdf, run the quality checks, and produce the
+finished .apkg.
+```
+
 The larger images (preview/OCR, source extraction) are built automatically the
 first time the corresponding `tools/*.sh` runs.
+
+### Shared guide, skill, and workflows
+
+[AGENTS.md](AGENTS.md) is the provider-neutral project guide and card JSON
+reference. [skills/card-authoring/SKILL.md](skills/card-authoring/SKILL.md)
+contains the authoring rules, with their evidence in
+[research.md](skills/card-authoring/research.md). These are ordinary Markdown
+files: an assistant can read and follow them without a skill registry or
+provider-specific installation.
+
+Use [workflows/forge.md](workflows/forge.md) for new cards and
+[workflows/rework.md](workflows/rework.md) for existing decks. For example:
+
+> Read `AGENTS.md`, `skills/card-authoring/SKILL.md`, and
+> `workflows/rework.md`. Rework my exported deck `sources/Biology/export.apkg`
+> while preserving its note GUIDs and learning progress.
+
+**Optional Claude Code integration:** The adapters in `.claude/` point to
+the shared instructions. Claude Code users can keep using
+`/forge sources/<topic>/<file>` and `/rework`; the optional
+`.claude/settings.json` hook adds automatic lint feedback after card edits.
+Other assistants run the same checks through the documented shell commands.
 
 > **Re-importing a newer version of a deck?** If you have already studied it, keep
 > your progress by giving cards stable GUIDs — see
@@ -121,7 +199,7 @@ first time the corresponding `tools/*.sh` runs.
 
 The project is deliberately generic — biology, law, math, software engineering,
 history: if it fits in a PDF or text file, it can become cards. Cards default to
-the language of your source material. Want something else? Just tell Claude:
+the language of your source material. Want something else? Just tell your assistant:
 
 > "Make the cards from sources/Histoire/revolution.pdf — cards in French, please."
 
@@ -129,15 +207,15 @@ For scanned PDFs in other languages, add the Tesseract language pack to
 `Dockerfile.extract` and pass `--lang` (e.g. `./tools/extract.sh … --lang eng+fra`).
 
 Optionally place a `context.md` next to your sources (what the material is for,
-where the focus lies, what the exam covers) — Claude reads it first and weights
+where the focus lies, what the exam covers) — the assistant reads it first and weights
 the cards accordingly.
 
 ## Saving tokens: run the extraction toolchain yourself
 
-Claude normally runs the whole pipeline for you. But the **source preparation**
-step (PDF → Markdown + figure crops) is pure tooling — no AI involved — and you
-can run it yourself before starting the chat, so Claude doesn't spend tokens
-babysitting Docker:
+Your assistant normally runs the whole pipeline for you. The **source
+preparation** step (PDF → Markdown + figure crops) is pure tooling — no AI
+involved — and you can run it yourself before starting the chat to avoid
+spending tokens on tool orchestration:
 
 ```bash
 ./tools/prep.sh sources/<topic>/            # whole folder, or a single PDF
@@ -151,7 +229,7 @@ This produces, per source file:
 - `extracted/<topic>/figures/<name>_p<page>_<i>.png` — cropped figures (for
   image-occlusion cards and cheap visual checks).
 
-Then tell Claude *"the sources are already prepared — make cards from
+Then tell your assistant *"the sources are already prepared — make cards from
 extracted/<topic>/…"* and it skips straight to reading and authoring. Everything
 else (lint, grounding, preview, build, validate) is also runnable by hand — see
 the tools table below.
@@ -166,7 +244,7 @@ the tools table below.
 
 On **every** card, optionally a collapsed "Details & source" box
 (`explanation` + `source`) — elaborative feedback after the retrieval, without
-making the question easier. Full card JSON format: [CLAUDE.md](CLAUDE.md).
+making the question easier. Full card JSON format: [AGENTS.md](AGENTS.md).
 
 ```json
 {
@@ -202,8 +280,9 @@ plus a target `.apkg` and it bundles a whole topic (and adds the coverage check)
 *File → Import*, and nothing else in this repo changes. With the
 [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on installed
 (code `2055492159`, then restart Anki), finished decks go straight into your
-collection over **local HTTP only** — no AnkiWeb credentials, nothing leaves
-your machine:
+collection over **local HTTP** by default, without passing AnkiWeb
+credentials to the tool. Explicit AnkiWeb sync sends collection data to
+AnkiWeb:
 
 ```bash
 python3 tools/anki_connect.py ping                    # is Anki + add-on reachable?
@@ -237,7 +316,7 @@ already been studying:
 ```bash
 # 1. In Anki: File → Export → .apkg (with scheduling) — or, with AnkiConnect:
 python3 tools/anki_connect.py export "<Deck>" export.apkg
-# 2. Back to editable JSON, GUIDs preserved (stdlib, no Docker):
+# 2. Back to editable JSON, GUIDs preserved (modern exports need zstd):
 python3 tools/apkg_to_cards.py export.apkg -o decks/<topic>/<name>_rebuild
 # 3. Edit the cards.json, then rebuild — re-import UPDATES instead of duplicating:
 ./tools/build.sh decks/<topic>/<name>_rebuild/*.cards.json "restructured.apkg"
@@ -245,7 +324,7 @@ python3 tools/apkg_to_cards.py export.apkg -o decks/<topic>/<name>_rebuild
 python3 tools/deck_diff.py export.apkg restructured.apkg --strict
 ```
 
-Details (cloze pitfalls, CSS updates): [CLAUDE.md](CLAUDE.md).
+Details (cloze pitfalls, CSS updates): [AGENTS.md](AGENTS.md).
 
 ## Tools
 
@@ -276,23 +355,41 @@ extracted/<topic>/         Markdown extracts + figure crops (local, via prep.sh)
 decks/<topic>/             generated .cards.json + .apkg (local; only the example in the repo)
 tools/                     preparation, build, checks — see the tools table
 tests/                     stdlib test suite of the logic tools
-.claude/                   card-authoring skill, /forge + /rework commands, optional
+skills/card-authoring/     shared card methodology + research (ordinary Markdown)
+workflows/                 provider-neutral forge + rework instructions
+.claude/                   optional Claude Code adapters: skill, slash commands,
                            cards.json lint hook (settings.json — delete to opt out)
 .githooks/                 pre-commit guard for the public repo
 docs/img/                  images/GIF for this README (recordings stay local)
 reference/                 local Anki reference clones (not in the repo, see reference/README.md)
-CLAUDE.md                  the project guide Claude follows (workflow + card format)
+AGENTS.md                  shared project guide (workflow + card format)
 ANKICONNECT.md             optional AnkiConnect integration (push/export/sync/mirror)
 ```
 
-## Privacy: your material stays local
+## Privacy: local files and your AI service
 
-Your sources, extracts and generated decks never leave your machine — they are
-excluded via `.gitignore`, and a **commit guard** (`.githooks/pre-commit`,
-enabled with `git config core.hooksPath .githooks`) additionally blocks commits
-that would add personal material (PDFs, `.apkg`, files under `sources/`,
-`extracted/`, `decks/`) — even with `git add -f`. The repo itself contains only
-the tools, the methodology and one example deck.
+Sources, extracts, and generated decks are stored locally and excluded from
+Git via `.gitignore`. The **commit guard** (`.githooks/pre-commit`, enabled
+with `git config core.hooksPath .githooks`) additionally blocks commits that
+would add personal material (PDFs, `.apkg`, files under `sources/`,
+`extracted/`, `decks/`) — even with `git add -f`. Its shared path allowlist lives
+in `tools/check_repo_files.py`; CI checks the same policy against all tracked
+files. The repository contains the tools, methodology, and one example deck.
+
+These Git protections prevent accidental commits; they do not control what
+your AI assistant sends to its model provider. Source text, images, and cards
+that a cloud assistant reads may be sent to that service, depending on its
+settings and data policy. Choose an appropriate service for your material.
+A local model is also an option when your agent tooling supports it and the
+required file, shell, and image capabilities.
+
+AnkiConnect talks to the local Anki app by default. An explicitly requested
+AnkiWeb sync transfers collection data to AnkiWeb.
+
+## Contributing
+
+For changes to the tools or documentation, see [CONTRIBUTING.md](CONTRIBUTING.md)
+for the branch → pull request → checked squash merge workflow and relevant tests.
 
 ## License
 

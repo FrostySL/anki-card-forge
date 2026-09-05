@@ -5,7 +5,7 @@ in Anki** WITHOUT losing the learning progress.
 
     python3 tools/apkg_to_cards.py <export.apkg> [-o TARGET_DIR]
 
-Workflow (see CLAUDE.md, section "Changing an existing deck without losing progress"):
+Workflow (see AGENTS.md, section "Changing an existing/learned deck"):
   1. Export in Anki: File -> Export -> .apkg (with scheduling).
   2. Run this tool -> one cards.json per deck (fields = current state,
      `guid` preserved per card).

@@ -7,7 +7,7 @@ Usage (normally via tools/preview.sh inside the preview container):
 Produces per theme:  decks/preview/<name>/NN-<type>-front[-dark].png  and  -back[-dark].png
                      decks/preview/<name>/index.html  (contact sheet for browsing)
 
-Purpose: feedback loop. Claude (or you) looks at the PNGs and fixes e.g.
+Purpose: feedback loop. Your AI assistant (or you) looks at the PNGs and fixes e.g.
 misplaced image-occlusion boxes before the final .apkg is built. The same
 HTML/CSS as in the .apkg is used (from build_deck.py), so the preview looks
 practically identical to the real Anki card.
