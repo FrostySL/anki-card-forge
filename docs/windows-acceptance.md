@@ -10,7 +10,8 @@ synthetic; personal collection exports and diagnostic files remain local.
 | Executable, package and loaded C++ DLL provenance | Passed: project `.forge/` and `.venv/` |
 | Synthetic all-types build | Passed: 8 notes, 10 cards, no render errors |
 | Multiple-input `finish` | Passed: 9 notes, 11 cards, real Anki validation |
-| Native PDF and scanned PDF preparation | Passed, including parallel extraction, German/English OCR, figures and four detected labels |
+| Native PDF and scanned PDF preparation | Passed, including parallel extraction, OCR, figures and four detected labels |
+| German OCR on the native development host | Passed with `deu` and `eng+deu`, including exact recognition of umlauts and ß |
 | Light/dark card previews | Passed: 40 PNGs, with Unicode media paths |
 | Offline formula previews | Passed: four PNGs, SVG mathematics and a dynamically loaded local `cancel` extension |
 | MathJax failure cases | Passed: missing extension fails; literal TeX inside code/pre remains literal |
@@ -60,11 +61,12 @@ package repairs or browser reinstallation. No manual setup intervention or
 administrator prompt was needed by the product setup.
 
 Both runs completed the all-types and multiple-input builds, real Anki
-validation, text/scanned PDF processing, German/English OCR, label/figure
+validation, text/scanned PDF processing, English OCR, label/figure
 extraction, 40 light/dark previews and four formula previews. Formula checks
 proved rendered SVG mathematics and dynamic local extensions, including failure
 when an extension is missing. Final doctor reported no issues and verified all
-32 installed packages. Provenance confirmed the interpreter, all eight checked
+32 installed packages and both German/English OCR language packs. Provenance
+confirmed the interpreter, all eight checked
 modules and three loaded Microsoft runtime DLLs came from the guest project's
 `.forge/` and `.venv/` directories.
 
@@ -73,6 +75,12 @@ bytes. These timings depend on hardware and network conditions. The closed
 transcript, matching successful result/completion records, setup state, doctor,
 provenance and network-isolation reports were copied back without a coordinator
 error. The complete logs and synthetic artifacts remain local.
+
+A separate focused native-host test used German text images with `--lang deu`
+and `--lang eng+deu`. Both recognized the exact phrases `Zellkern steuert die Zelle`
+and `Übertragung und Größe`, including umlauts and ß. This confirms German OCR
+in addition to the English synthetic pipeline and the language-pack integrity
+checks in Sandbox.
 
 Earlier cold attempts exposed missing public CA roots and a generated Chromium
 `debug.log` being mistaken for immutable payload. The fixes retain TLS
