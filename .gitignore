@@ -26,6 +26,8 @@ docs/**/*.webm
 graphify-out/
 
 # Python
+.forge/
+.venv/
 __pycache__/
 *.py[cod]
 

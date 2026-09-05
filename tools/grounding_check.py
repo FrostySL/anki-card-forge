@@ -83,6 +83,7 @@ def _answer_text(card):
 def _sibling_md(cards_path):
     """The matching extracted/ .md for a cards.json — exact or by prefix (cards
     often named short '08_TST', the .md long '08_TST_Testing_TDD'). -> path or None."""
+    cards_path = os.fspath(cards_path).replace(os.sep, "/")
     exact = cards_path.replace("decks/", "extracted/", 1).replace(".cards.json", ".md")
     if os.path.isfile(exact):
         return exact
@@ -97,6 +98,7 @@ def _sibling_md(cards_path):
 
 def _load_source(cards_path, override):
     """-> (whole_text_index, {page: index}, paths). Several sources: whole text only."""
+    cards_path = os.fspath(cards_path).replace(os.sep, "/")
     if override:
         # Filter .figures.md like the default branch does — otherwise a folder
         # with x.md + x.figures.md counts as "several sources" and the

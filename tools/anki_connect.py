@@ -36,6 +36,7 @@ Safeguards:
     the package (symptom of a rebuild that lost the GUIDs).
 """
 import argparse
+from _filenames import safe_stem, unique_stems
 import glob
 import json
 import os
@@ -219,16 +220,7 @@ def _unique_safe_names(deck_names):
     """{deck: collision-free file stem}. Different deck names can sanitize to
     the same stem ('A::B' and 'A B' -> 'A_B'); a numeric suffix keeps the
     second one from silently overwriting the first (backup = restore path!)."""
-    out, used = {}, set()
-    for deck in deck_names:
-        stem = _safe_name(deck) or "deck"
-        cand, n = stem, 1
-        while cand in used:
-            n += 1
-            cand = f"{stem}_{n}"
-        used.add(cand)
-        out[deck] = cand
-    return out
+    return unique_stems(deck_names)
 
 
 def _backup_decks(deck_names):
@@ -508,7 +500,7 @@ MIRROR_DIR = os.path.join(_ROOT, "decks", "_anki-mirror")
 
 def _safe_name(deck_name):
     # Same sanitizing as apkg_to_cards.write_cards_json -> consistent file names.
-    return re.sub(r"[^\w.+-]+", "_", deck_name).strip("_")
+    return safe_stem(deck_name)
 
 
 def _decode_apkg(apkg_path, outdir):

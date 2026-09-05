@@ -4,8 +4,38 @@ This project turns **source files into Anki flashcards**. The AI assistant
 chosen by the user authors the card content and writes provider-independent
 `*.cards.json` files. The repository itself makes **no model API calls** and
 requires **no model API key**; any model access, credentials, cost and source-data
-handling belong to the assistant or service the user chooses. Docker builds the
-Anki packages and runs the extraction, preview and validation tools.
+handling belong to the assistant or service the user chooses. Windows uses a
+managed local toolchain; Linux uses Docker for building, extraction and rendering.
+
+## Choose the platform entry point first
+
+On **Windows 11 x64**, run `.\forge.cmd doctor` and, if needed,
+`.\forge.cmd setup` from the project. Setup needs internet initially and normal
+user permissions, with no preinstalled Python, Git, Docker or WSL. Managed
+tools/assets/caches live in `.forge/`, packages in `.venv/`; never commit them.
+ZIP downloads skip Git hook configuration. `setup --offline` only uses local
+components and caches. `setup --lang fra` adds OCR languages; `eng+deu` is default.
+
+The shell/Python examples below describe the Linux route. On Windows replace
+them with the corresponding `.\forge.cmd` subcommand and keep their arguments:
+
+| Linux example | Windows entry point |
+|---|---|
+| `./tools/prep.sh`, `./tools/finish.sh` | `.\forge.cmd prep`, `.\forge.cmd finish` |
+| `./tools/extract.sh`, `figextract.sh`, `detect.sh` | `.\forge.cmd extract`, `figextract`, `detect` |
+| `./tools/build.sh`, `preview.sh`, `validate.sh` | `.\forge.cmd build`, `preview`, `validate` |
+| `python3 tools/lint_cards.py`, `grounding_check.py`, `coverage.py` | `.\forge.cmd lint`, `grounding`, `coverage` |
+| `python3 tools/apkg_to_cards.py`, `deck_diff.py`, `figindex.py` | `.\forge.cmd decode`, `diff`, `figindex` |
+| `python3 tools/anki_connect.py …`, `./tools/test.sh` | `.\forge.cmd anki …`, `.\forge.cmd test` |
+
+Quote paths with spaces; input wildcards and calls from subdirectories are
+supported. Paths **inside cards.json** remain relative to the project root and
+use `/`, including media paths. Windows Anki connects directly through the
+managed interpreter; the WSL bridge below applies only to WSL projects.
+Previews use local MathJax, including dynamically loaded extensions; render
+failures stop the preview. `preview --offline` additionally rejects web media.
+Native Linux, macOS and Windows ARM64 setup are not supported in this release.
+See [setup details](docs/cross-platform-setup.md).
 
 ## Assistant capabilities and entry points
 

@@ -1,4 +1,4 @@
-"""Generate an original two-page fixture inside the existing extract image."""
+"""Generate an original two-page fixture with native and raster-only text."""
 from pathlib import Path
 import sys
 
@@ -23,6 +23,7 @@ def main():
                     (220, "An input becomes an output."), (280, "The output is READY.")]:
         scanned.insert_text((45, y), text, fontsize=26)
     pixels = scanned.get_pixmap(matrix=fitz.Matrix(3, 3))
+    pixels.save(str(target.with_name(target.stem + "-scan.png")))
     page = document.new_page(width=600, height=800)
     page.insert_image(page.rect, stream=pixels.tobytes("png"))
     document.save(str(target))

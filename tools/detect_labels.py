@@ -83,7 +83,7 @@ def annotate(img, labels, out_path):
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except Exception:
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(size=22)
     for idx, l in enumerate(labels):
         x, y = l["x"] * width, l["y"] * height
         w, h = l["w"] * width, l["h"] * height

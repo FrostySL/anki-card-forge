@@ -1,4 +1,4 @@
-"""Check image content inside the preview image, where Pillow is installed.
+"""Check native/container image content with Pillow.
 
 No fixed screenshot hashes or OCR/layout coordinates: compare only meaningful
 relationships within one render, keeping Chromium/font upgrades reviewable.
@@ -25,12 +25,16 @@ def main():
         dark = images[name.removesuffix(".png") + "-dark.png"]
         assert light.size == dark.size, f"Themes changed card dimensions: {name}"
         assert ImageChops.difference(light, dark).getbbox(), f"Dark theme was not applied: {name}"
-    for suffix in ("", "-dark"):
-        first = images[f"09-occlusion-front{suffix}.png"]
-        second = images[f"10-occlusion-front{suffix}.png"]
-        assert first.size == second.size
-        assert ImageChops.difference(first, second).getbbox(), "Hide-all targets are indistinguishable"
-    print(f"PASS: {len(images)} complete, nonblank previews; both themes and distinct occlusion targets")
+    if "--formulas" in sys.argv[2:]:
+        assert len(images) == 4, "Formula fixture needs four light/dark front/back previews"
+    else:
+        assert len(images) == 40, "All-types fixture needs 40 previews"
+        for suffix in ("", "-dark"):
+            first = images[f"09-occlusion-front{suffix}.png"]
+            second = images[f"10-occlusion-front{suffix}.png"]
+            assert first.size == second.size
+            assert ImageChops.difference(first, second).getbbox(), "Hide-all targets are indistinguishable"
+    print(f"PASS: {len(images)} complete, nonblank previews; both themes")
 
 
 if __name__ == "__main__":

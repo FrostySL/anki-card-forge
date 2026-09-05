@@ -21,18 +21,21 @@ import html
 import json
 import mimetypes
 import os
+from pathlib import Path
 import re
 import sys
+from urllib.parse import unquote, urlsplit
 
 import build_deck  # same tools/ directory -> sys.path[0]
 from playwright.sync_api import sync_playwright
 
-# MathJax like in Anki (\( \) inline, \[ \] display). Only included when the card
-# actually contains formulas -> normal cards need no internet/CDN. In the .apkg,
-# Anki ships MathJax itself; this is only for preview parity.
+MATHJAX_ORIGIN = "https://anki-card-forge.invalid/mathjax"
+# The complete es5 tree is installed once. All component requests are fulfilled
+# from local files, including extensions requested by TeX's \\require command.
 _MATHJAX = (
-    r"<script>window.MathJax={tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]}};</script>"
-    '<script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>'
+    '<script>window.MathJax={loader:{paths:{mathjax:"' + MATHJAX_ORIGIN + '"}},'
+    r"startup:{typeset:false},tex:{inlineMath:[['\\(','\\)']],displayMath:[['\\[','\\]']]}};</script>"
+    '<script src="' + MATHJAX_ORIGIN + '/tex-svg.js"></script>'
 )
 
 _DOC = (
@@ -48,6 +51,55 @@ _THEMES = {
     "light": "background:#fff;",
     "dark": "background:#2b2b2b;color:#d7d7d7;",
 }
+
+
+def mathjax_directory():
+    return Path(os.environ.get("ACF_MATHJAX_DIR", str(
+        Path(__file__).resolve().parent.parent / ".forge/assets/mathjax-3.2.2/es5"))).resolve()
+
+
+def configure_mathjax(page, directory=None, requests=None):
+    """Route MathJax's synthetic origin to local files; return loading errors."""
+    directory = Path(directory or mathjax_directory()).resolve()
+    failures = []
+
+    def serve(route):
+        suffix = unquote(urlsplit(route.request.url).path).removeprefix("/mathjax/")
+        try:
+            path = (directory / suffix).resolve()
+            path.relative_to(directory)
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            mime = "application/javascript" if path.suffix == ".js" else mimetypes.guess_type(path.name)[0]
+            route.fulfill(path=str(path), content_type=mime or "application/octet-stream")
+            if requests is not None:
+                requests.append(suffix)
+        except (OSError, ValueError) as exc:
+            failures.append(f"MathJax component unavailable: {suffix}: {exc}")
+            route.abort()
+
+    page.route(MATHJAX_ORIGIN + "/**", serve)
+    return failures
+
+
+def render_math(page, failures):
+    """Require SVG for detected math, preserving literal TeX in code/pre blocks."""
+    if failures:
+        raise RuntimeError("; ".join(failures))
+    page.wait_for_function("window.MathJax && window.MathJax.typesetPromise", timeout=15000)
+    page.evaluate("""async () => {
+        await Promise.race([
+            (async () => { await MathJax.startup.promise; await MathJax.typesetPromise(); })(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('MathJax timed out')), 15000))
+        ]);
+    }""")
+    if failures:
+        raise RuntimeError("; ".join(failures))
+    count = page.locator('mjx-container[jax="SVG"] svg').count()
+    expected = page.evaluate("Array.from(MathJax.startup.document.math).length")
+    if count < expected or page.locator('[data-mjx-error], mjx-merror, .mjx-merror').count():
+        raise RuntimeError("MathJax did not render the formula correctly.")
+    return count
 
 
 def _data_uri(path):
@@ -134,13 +186,13 @@ def _write_index(outdir, rows, themes=("light",)):
         f.write(doc)
 
 
-def preview(cards_path, themes=("light", "dark")):
+def preview(cards_path, themes=("light", "dark"), offline=False):
     with open(cards_path, encoding="utf-8") as f:
         data = json.load(f)
 
     base = os.path.basename(cards_path)
     for suffix in (".cards.json", ".json"):
-        if base.endswith(suffix):
+        if base.lower().endswith(suffix):
             base = base[: -len(suffix)]
             break
     # Preview next to the cards.json (e.g. decks/Biology/x.cards.json -> decks/Biology/preview/x/)
@@ -150,33 +202,43 @@ def preview(cards_path, themes=("light", "dark")):
 
     items = _collect(data)
     rows = []
+    report = {"offline": offline, "math_renders": [], "mathjax_requests": []}
     with sync_playwright() as p:
-        # --no-sandbox: needed for headless Chromium as non-root in the container
-        # (we only render our own, trusted HTML).
-        browser = p.chromium.launch(args=["--no-sandbox"])
-        page = browser.new_page(viewport={"width": 800, "height": 600}, device_scale_factor=2)
-        for i, (ctype, label, front, back) in enumerate(items, 1):
-            for side, body in (("front", front), ("back", back)):
-                # Show the collapsed box open in the preview (stays closed in the real deck).
-                body = body.replace('<details class="more">', '<details class="more" open>')
-                has_math = "\\(" in body or "\\[" in body
-                mathjax = _MATHJAX if has_math else ""
-                for theme in themes:
-                    page.set_content(_DOC.format(
-                        css=build_deck._CSS, body=body, mathjax=mathjax, frame=_THEMES[theme]))
-                    if has_math:
-                        # Best effort: wait for MathJax and typeset. Offline -> timeout,
-                        # formulas stay raw text (the .apkg still renders them).
-                        try:
-                            page.wait_for_function("window.MathJax && window.MathJax.typesetPromise", timeout=4000)
-                            page.evaluate("() => window.MathJax.typesetPromise()")
-                        except Exception:
-                            pass
-                    page.locator(".card").screenshot(path=os.path.join(outdir, _png_name(i, ctype, side, theme)))
-            rows.append((i, ctype, label))
-        browser.close()
+        in_container = os.environ.get("ACF_PREVIEW_CONTAINER") == "1" or Path("/.dockerenv").exists()
+        browser = p.chromium.launch(chromium_sandbox=not in_container)
+        try:
+            context = browser.new_context(viewport={"width": 800, "height": 600}, device_scale_factor=2)
+            blocked = []
+            if offline:
+                def block_external(route):
+                    blocked.append(route.request.url)
+                    route.abort()
+                context.route("**/*", block_external)
+            page = context.new_page()
+            failures = configure_mathjax(page, requests=report["mathjax_requests"])
+            for i, (ctype, label, front, back) in enumerate(items, 1):
+                for side, body in (("front", front), ("back", back)):
+                    body = body.replace('<details class="more">', '<details class="more" open>')
+                    has_math = "\\(" in body or "\\[" in body
+                    if has_math and not (mathjax_directory() / "tex-svg.js").is_file():
+                        raise RuntimeError("Local MathJax is missing. Run forge.cmd setup or rebuild the preview image.")
+                    for theme in themes:
+                        filename = _png_name(i, ctype, side, theme)
+                        page.set_content(_DOC.format(
+                            css=build_deck._CSS, body=body,
+                            mathjax=_MATHJAX if has_math else "", frame=_THEMES[theme]))
+                        if has_math:
+                            report["math_renders"].append({
+                                "filename": filename, "math_count": render_math(page, failures)})
+                        if blocked:
+                            raise RuntimeError("Offline preview needs external resources: " + ", ".join(blocked))
+                        page.locator(".card").screenshot(path=os.path.join(outdir, filename))
+                rows.append((i, ctype, label))
+        finally:
+            browser.close()
 
     _write_index(outdir, rows, themes)
+    Path(outdir, "render-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     n_png = len(items) * 2 * len(themes)
     print(f"OK: {len(items)} cards · themes: {'+'.join(themes)} -> {outdir}/  ({n_png} PNGs + index.html)")
     return outdir
@@ -189,6 +251,7 @@ if __name__ == "__main__":
     ap.add_argument("cards", help="path to the cards.json")
     ap.add_argument("--theme", choices=["light", "dark", "both"], default="both",
                     help="which theme(s) to render (default: both = light AND Anki night mode).")
+    ap.add_argument("--offline", action="store_true", help="fail if the preview needs external resources")
     args = ap.parse_args()
     themes = ("light", "dark") if args.theme == "both" else (args.theme,)
-    preview(args.cards, themes)
+    preview(args.cards, themes, offline=args.offline)

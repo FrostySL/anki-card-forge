@@ -87,15 +87,18 @@ cards masking *v*, *i* and *R* on the circuit — fresh out of the forge.
   commands. Image viewing is needed for visual source material, image-occlusion
   cards, and visual preview checks; if unavailable, inspect those images
   yourself and do not treat the visual review as complete.
-- **Git, Bash, and Python 3.10+** on the host (on Windows, use a Bash
-  environment such as WSL).
-- **Docker** with a running daemon (packs cards into `.apkg`, renders previews,
-  runs OCR).
+- **Windows 11 x64:** a writable project folder and internet for the first
+  `forge.cmd setup`. Python, OCR, Chromium and formula assets are installed
+  locally. Git, Docker, WSL and administrator rights are not required.
+- **Linux / WSL2:** Git, Bash, Python 3.10+ and Docker with a running daemon.
 - *Optional:* the **AnkiConnect** add-on (code `2055492159`) to push decks into
   Anki without the manual import dance — see [ANKICONNECT.md](ANKICONNECT.md).
   Everything works without it; it just saves clicks.
 
-The main build, extraction, and rendering dependencies live inside Docker.
+On Windows, dependencies live in `.forge/` and `.venv/`. After setup, processing
+local sources and rendering formulas work offline. Native Linux, macOS and
+Windows ARM64 setup are outside the initial supported scope.
+On Linux, the main build, extraction, and rendering dependencies live inside Docker.
 Host-side lint, grounding, and coverage checks use Python's standard library.
 Reading modern Anki exports/backups additionally needs Python `zstandard` or
 the `zstd` CLI; see [AnkiConnect setup](ANKICONNECT.md#setup-once).
@@ -123,6 +126,36 @@ indefinitely. If Anki runs on Windows while the project runs in WSL, use the
 [Windows Anki connection instructions](ANKICONNECT.md#wsl2-project-with-anki-on-windows).
 
 ## Quick start
+
+### Windows 11 x64
+
+Clone the repository, or download its ZIP from GitHub and extract it. Open the
+folder in your AI assistant and ask it to run setup, or use PowerShell:
+
+```powershell
+.\forge.cmd setup
+.\forge.cmd doctor
+.\forge.cmd prep sources\Biology
+.\forge.cmd preview decks\Biology\respiration.cards.json
+.\forge.cmd finish decks\Biology\respiration.cards.json
+# Optional, with Anki and AnkiConnect open:
+.\forge.cmd anki ping
+```
+
+Setup downloads pinned components, checks their integrity, and runs synthetic
+functional checks. Repeating it reuses installed components; `setup --offline`
+uses only local files and caches. `doctor` checks without downloading or
+installing. Add OCR languages with `setup --lang fra`; English and German are
+included by default. Keep the project in a reasonably short writable path.
+
+Use quoted paths when they contain spaces. Wildcards such as
+`decks\Biology\*.cards.json` are expanded by the launcher. Media paths *inside
+card JSON* stay relative to the project and use `/` on both platforms.
+Keep `.forge/` and `.venv/` local; recreate them with setup after moving to
+another machine. See [Windows setup details](docs/cross-platform-setup.md)
+and [acceptance tests](tests/integration/README.md).
+
+### Linux / WSL2
 
 ```bash
 git clone https://github.com/FrostySL/anki-card-forge
@@ -165,8 +198,14 @@ sources/Biology/respiration.pdf, run the quality checks, and produce the
 finished .apkg.
 ```
 
-The larger images (preview/OCR, source extraction) are built automatically the
-first time the corresponding `tools/*.sh` runs.
+On Linux, the larger images (preview/OCR, source extraction) are built
+automatically the first time the corresponding `tools/*.sh` runs.
+
+The remaining examples use the Linux commands. On Windows, use `forge.cmd`
+with the same arguments: `prep`, `finish`, `extract`, `figextract`, `figindex`,
+`detect`, `lint`, `grounding`, `coverage`, `build`, `preview`, `validate`,
+`decode`, `diff`, `anki` and `test`. For example, `python3 tools/deck_diff.py`
+becomes `.\forge.cmd diff`, and `./tools/build.sh` becomes `.\forge.cmd build`.
 
 ### Shared guide, skill, and workflows
 

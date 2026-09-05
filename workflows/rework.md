@@ -6,6 +6,12 @@ plus the changes requested by the user.
 Read `AGENTS.md`, especially "Changing an existing/learned deck" and the
 AnkiConnect safeguards, and `skills/card-authoring/SKILL.md` first. Task steps:
 
+On native Windows, use `.\forge.cmd anki`, `decode`, `build`, `diff` and
+`validate` instead of the Python/shell commands below. Run `.\forge.cmd setup`
+if `.\forge.cmd doctor` reports missing components. The decoder currently skips
+image-occlusion notes; stop and inspect any skipped-note warnings before
+rebuilding a learned deck.
+
 1. Get a FRESH export with scheduling — never rebuild from a stale
    repo cards.json: `python3 tools/anki_connect.py export "<Deck>" <tmp>.apkg`
    (or ask the user for File → Export → .apkg with scheduling).

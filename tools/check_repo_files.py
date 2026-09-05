@@ -25,6 +25,8 @@ BLOCKED_SUFFIXES = (".pdf", ".apkg", ".colpkg")
 
 
 def blocked_reason(path):
+    if path.split("/", 1)[0].casefold() in {".forge", ".venv"}:
+        return "managed runtimes, environments and caches must stay local."
     if path.lower().endswith(BLOCKED_SUFFIXES):
         return "PDFs/Anki packages do not belong in the public repo."
     if "/" not in path or any(fnmatch.fnmatchcase(path, p) for p in ALLOWED_PATTERNS):

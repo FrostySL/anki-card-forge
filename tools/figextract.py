@@ -126,7 +126,7 @@ def extract(in_path, out_dir, zoom=2.0, min_area=0.03, max_area=0.92,
             manifest.append({
                 "page": i + 1,            # 1-based like the <!-- p. N --> markers
                 "kind": kind,             # raster | vector
-                "image": rel,             # path relative to project root (occlusion `image`)
+                "image": rel.replace(os.sep, "/"),  # portable project-relative media path
                 "area": round(area, 4),   # fraction of the page area
                 **frac,                   # x, y, w, h as fractions 0..1
             })

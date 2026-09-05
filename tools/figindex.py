@@ -132,7 +132,7 @@ def extracted_dirs_for(args):
         rel = norm[len("sources/"):]
         if os.path.splitext(rel)[1]:          # a file -> index its topic dir
             rel = os.path.dirname(rel)
-        d = os.path.join("extracted", rel) if rel else "extracted"
+        d = "extracted/" + rel if rel else "extracted"
         if d not in dirs:
             dirs.append(d)
     return dirs

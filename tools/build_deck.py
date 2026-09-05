@@ -23,6 +23,7 @@ import re
 import sys
 
 import genanki
+from _filenames import collision_key
 
 
 def stable_id(text: str) -> int:
@@ -506,7 +507,7 @@ def _deck_from_data(data, media):
 def _default_out(first_input):
     base = os.path.basename(first_input)
     for suffix in (".cards.json", ".json"):
-        if base.endswith(suffix):
+        if base.lower().endswith(suffix):
             base = base[: -len(suffix)]
             break
     # Put the .apkg next to the cards.json (e.g. decks/Biology/x.cards.json -> decks/Biology/x.apkg)
@@ -548,7 +549,7 @@ def build(inputs, out_path: str | None = None) -> str:
         # would show the wrong image.
         by_base = {}
         for p in sorted(media):
-            b = os.path.basename(p)
+            b = collision_key(os.path.basename(p))
             if b in by_base and not os.path.samefile(p, by_base[b]):
                 raise ValueError(
                     f"Media name clash: '{by_base[b]}' and '{p}' would both be "

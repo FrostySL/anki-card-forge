@@ -29,7 +29,9 @@ class TestLooksLikePath(unittest.TestCase):
 
 class TestMapArg(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.d = temporary.name
         self.root = os.path.realpath(self.d)
 
     def _map(self, arg):
@@ -42,20 +44,20 @@ class TestMapArg(unittest.TestCase):
             os.makedirs("decks/Bio")
             open("decks/Bio/x.cards.json", "w").close()
             self.assertEqual(self._map("decks/Bio/x.cards.json"),
-                             os.path.join("decks", "Bio", "x.cards.json"))
+                             "decks/Bio/x.cards.json")
         finally:
             os.chdir(cwd)
 
     def test_absolute_inside_becomes_relative(self):
         # The core fix: an absolute path inside the project maps to /work/… .
         target = os.path.join(self.root, "decks", "x.apkg")
-        self.assertEqual(self._map(target), os.path.join("decks", "x.apkg"))
+        self.assertEqual(self._map(target), "decks/x.apkg")
 
     def test_nonexistent_output_inside_ok(self):
         # Output paths do not exist yet — must still map, not error.
         self.assertEqual(mp.map_arg(os.path.join(self.root, "decks", "new.apkg"),
                                     self.root),
-                         os.path.join("decks", "new.apkg"))
+                         "decks/new.apkg")
 
     def test_wrong_cwd_relative_resolves(self):
         sub = os.path.join(self.root, "decks", "Bio")
@@ -65,7 +67,7 @@ class TestMapArg(unittest.TestCase):
         os.chdir(sub)  # as if called from within decks/Bio
         try:
             self.assertEqual(mp.map_arg("x.cards.json", self.root),
-                             os.path.join("decks", "Bio", "x.cards.json"))
+                             "decks/Bio/x.cards.json")
         finally:
             os.chdir(cwd)
 
@@ -96,7 +98,7 @@ class TestMainOutput(unittest.TestCase):
             mp.main([root, "--lang", "eng+deu", os.path.join(root, "decks", "a.apkg")])
         parts = buf.getvalue().split("\0")
         # trailing "" after the last NUL
-        self.assertEqual(parts[:-1], ["--lang", "eng+deu", os.path.join("decks", "a.apkg")])
+        self.assertEqual(parts[:-1], ["--lang", "eng+deu", "decks/a.apkg"])
 
     def test_empty_args_empty_output(self):
         import io

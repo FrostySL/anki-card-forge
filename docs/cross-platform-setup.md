@@ -1,185 +1,125 @@
-# Planung: Plattformübergreifende Einrichtung
+# Native Windows-Einrichtung und Plattformtests
 
-- Stand: 5. September 2026
-- Feature-Branch: `feature/cross-platform-setup`
-- Status: Gesprächsergebnis und Vorschläge; das Feature ist noch nicht implementiert.
+Die gemeinsame Befehlssteuerung unterstützt **Windows 11 x64 nativ** und den
+bestehenden **Linux-/Docker-Ablauf**. Native Linux-Einrichtung, macOS und Windows
+ARM64 sind nicht Teil dieser Umsetzung. Der Karteninhalt entsteht weiterhin
+im frei gewählten KI-Assistenten; das Repository ruft keine Modell-API auf.
 
-Diese Notiz hält den Kontext für die Weiterarbeit auf einem anderen Rechner fest.
-Sie ergänzt [AGENTS.md](../AGENTS.md) und
-[CONTRIBUTING.md](../CONTRIBUTING.md). Die bestehenden Anleitungen beschreiben
-weiterhin die tatsächlich verfügbaren Werkzeuge. Die unten gezeigten neuen
-Befehle sind ausschließlich Entwürfe.
+## Windows verwenden
 
-## Vom Nutzer festgelegtes Ziel
-
-Mehr Menschen sollen das Repository unter Windows, Linux und perspektivisch
-macOS verwenden können, mit möglichst wenig manueller Einrichtung.
-Die bisherige Entwicklungsumgebung nutzt Windows mit WSL/Ubuntu; der dokumentierte
-Projektablauf ist vor allem auf Linux, Bash und Docker ausgerichtet.
-Der nächste Schwerpunkt der besprochenen Erweiterung ist ein direkter
-Windows-Ablauf.
-
-Das bestehende Arbeitsmodell bleibt erhalten:
-
-1. Nutzer laden oder klonen das Repository und öffnen es in ihrem bevorzugten
-   KI-Werkzeug, etwa einem Assistenten in VS Code oder einem anderen Harness.
-2. Der Assistent liest die Projektanweisungen und verwendet die bereitgestellten
-   lokalen Werkzeuge zur Einrichtung und Verarbeitung der Quellen.
-3. Der vom Nutzer gewählte Assistent schreibt die Karten als
-   providerunabhängige `*.cards.json`.
-4. Das Repository übernimmt Extraktion, Vorschau, Qualitätsprüfungen und den
-   Bau der Anki-Pakete.
-
-Das Repository führt weiterhin keine Modell-API-Aufrufe aus und verlangt keinen
-zusätzlichen Modell-API-Key. Modellzugang und Nutzung bleiben beim gewählten
-KI-Werkzeug. Die dafür bereits vorhandenen Konten oder Abonnements werden durch
-dieses Feature nicht ersetzt.
-
-Eine eigene Desktop-Oberfläche, ein gehosteter Dienst und eine integrierte
-KI-Anbindung gehören nicht zu diesem Ziel. Der Nutzer möchte das Repository
-weiterhin seiner vorhandenen KI als Werkzeugkasten geben.
-
-## Besprochene technische Richtung
-
-Die folgenden Punkte sind Architekturvorschläge, noch keine abschließend
-geprüften Technologieentscheidungen:
-
-- Eine gemeinsame Kommandozeile in Python koordiniert die vorhandenen Werkzeuge.
-  Kleine Starter für die jeweiligen Betriebssysteme rufen dieselbe Ablauflogik
-  auf. Setup-, Vorbereitungs- und Abschlusslogik sollen zentral gepflegt werden.
-- Das Projekt prüft Voraussetzungen selbst und richtet fehlende Komponenten
-  über einen wiederholbar ausführbaren, dokumentierten Ablauf ein. Der
-  Assistent soll diesen Ablauf aufrufen können, ohne bei jedem Nutzer die
-  Installation neu improvisieren zu müssen.
-- Laufzeit und Abhängigkeiten sollen möglichst in einem vom Projekt verwalteten
-  Verzeichnis liegen. Globale Installationen, Administratorrechte und Änderungen
-  an der dauerhaften Systemkonfiguration sollen möglichst vermeidbar sein.
-- Für Python und Python-Pakete wurde **uv** als Kandidat vorgeschlagen. Ein kleiner
-  Starter könnte eine festgelegte uv-Version beziehen, die benötigte
-  Python-Version bereitstellen und festgelegte Paketversionen installieren.
-  `pyproject.toml` und ein Lockfile wären mögliche Bausteine dafür.
-- OCR-Werkzeuge, Sprachdaten und Browserkomponenten müssen ebenfalls planbar
-  bereitgestellt werden. Große Komponenten könnten beim ersten Bedarf geladen
-  und anschließend wiederverwendet werden; ein vollständiges Setup muss alle
-  für den gewünschten Ablauf notwendigen Prüfungen verfügbar machen.
-- Ein nativer Ablauf mit geringer Einrichtungshürde ist das angestrebte Ziel.
-  Docker wurde als optionaler Ausführungsweg für bestehende Nutzer, Entwicklung
-  oder geeignete Sonderfälle diskutiert. Wie weit der vollständige Ablauf ohne
-  Docker tragfähig ist, muss zuerst untersucht werden.
-- Linux soll weiter funktionieren. macOS soll in der gemeinsamen Architektur
-  berücksichtigt werden; konkrete Unterstützung folgt erst nach Prüfung und
-  Tests auf den jeweiligen Plattformen.
-
-## So könnte der Windows-Einstieg aussehen
-
-Nutzer öffnen das Repository in einem normalen Windows-Verzeichnis mit einem
-Assistenten, der Dateien lesen und schreiben sowie lokale Werkzeuge aufrufen
-kann. Sie geben beispielsweise diesen Auftrag:
-
-> Hier sind das Projekt und meine Unterlagen. Richte die benötigten Werkzeuge
-> ein und erstelle die Karten nach den Projektanweisungen.
-
-Ein zukünftiger Windows-Starter könnte so angesprochen werden:
+Das Repository klonen oder das GitHub-ZIP in einen beschreibbaren Ordner
+entpacken. Ein normaler Benutzer kann anschließend in PowerShell starten:
 
 ```powershell
 .\forge.cmd setup
+.\forge.cmd doctor
 .\forge.cmd prep sources\Biologie
+.\forge.cmd preview decks\Biologie\kapitel.cards.json
 .\forge.cmd finish decks\Biologie\kapitel.cards.json
+.\forge.cmd anki ping
 ```
 
-`forge.cmd` und diese Befehle existieren in diesem Planungsstand noch nicht.
-Die genaue Schnittstelle ist offen. Der Starter müsste auch auf einem System
-ohne vorinstalliertes Python anlaufen können. Beim ersten Start würden die
-benötigten Komponenten heruntergeladen; spätere Aufrufe würden sie wiederverwenden.
-Eine selbst eingerichtete WSL-Umgebung oder eine vorherige Docker-Installation
-sollte für diesen angestrebten Windows-Ablauf nicht nötig sein.
+Python, Docker, Git und WSL müssen dafür nicht vorinstalliert sein. Setup lädt
+beim ersten Lauf die benötigten Komponenten herunter und prüft deren Funktion.
+Bei einer ZIP-Kopie wird die Einrichtung des Git-Hooks übersprungen. Bei einem
+Git-Checkout aktiviert Setup den Commit-Guard, sofern Git verfügbar ist.
 
-## Zuerst am Code zu prüfen
+`doctor` prüft nur und lädt nichts herunter. Ein wiederholtes `setup` verwendet
+intakte Komponenten erneut und repariert beschädigte oder fehlende Bestandteile.
+`setup --offline` verwendet ausschließlich vorhandene Dateien und Caches; bei
+einem fehlenden Bestandteil nennt es den Fehler. Erfolg wird erst nach den
+Funktionsprüfungen gemeldet.
 
-Die ursprüngliche Einschätzung beruhte auf der Projektanleitung und externer
-Dokumentation. Eine systematische Prüfung der Portabilität der tatsächlichen
-Implementierung und ein vollständiger nativer Windows-Test stehen noch aus.
+Deutsch und Englisch sind standardmäßig eingerichtet. Weitere OCR-Sprachen
+kommen aus demselben festgelegten tessdata-Datenstand:
 
-| Bereich | Untersuchungsbedarf |
+```powershell
+.\forge.cmd setup --lang fra
+.\forge.cmd prep sources\Französisch --lang fra -j 2
+```
+
+Pfade mit Leerzeichen werden in Anführungszeichen gesetzt. Eingabe-Wildcards
+und Aufrufe aus Unterverzeichnissen sind möglich; Argumentpfade beziehen sich
+auf das aktuelle Verzeichnis. Medienpfade **in Karten-JSON** beziehen sich
+immer auf das Projekt und verwenden `/`. Für lange Dokumentnamen einen kurzen
+Projektpfad wählen, damit Windows-Pfadlängengrenzen nicht erreicht werden.
+
+## Lokale Komponenten und Integrität
+
+| Ort | Inhalt |
 |---|---|
-| Shell-Einstiegspunkte | Ablauflogik und Voraussetzungen von `setup.sh`, `prep.sh`, `finish.sh` sowie den einzelnen Werkzeug-Wrappern erfassen. |
-| Python-Kern | Direkte native Ausführung, Paketversionen, Unterprozesse, Dateizugriffe und mögliche Linux-Annahmen prüfen. |
-| PDF-Extraktion und OCR | Native Abhängigkeiten, Windows-Binärpakete, Sprachdaten und Installation ohne separate Nutzereinrichtung untersuchen. |
-| Kartenbilder und Vorschau | Den bestehenden Chromium-Ablauf auf native Installation und Rendering in hellem und dunklem Design prüfen. Playwright wurde als möglicher Baustein genannt, nicht als bereits beschlossener Austausch. |
-| Anki-Paketbau und Validierung | Verfügbarkeit kompatibler Windows-Pakete für den Builder, Kompression und das echte Anki-Backend nachweisen. Eine erfolgreiche Python-Installation allein genügt dafür nicht. |
-| AnkiConnect | Direkten Zugriff aus Windows auf das dort laufende Anki prüfen; den bestehenden WSL/Windows-Sonderfall in der Dokumentation berücksichtigen. |
-| Dateisystem | Laufwerksbuchstaben, Leerzeichen, Umlaute, temporäre Dateien, Dateisperren und zulässige Dateinamen prüfen. Anki-Decknamen mit `::` müssen von Dateinamen getrennt behandelt werden. |
-| Setup und Git | Wiederholtes Setup, fehlgeschlagene Downloads, feste Versionen, Prüfsummen und Gitignore für lokale Laufzeiten und Caches berücksichtigen. |
-| Plattformumfang | Unterstützte Windows-/macOS-Versionen, x64/ARM64 und verfügbare native Abhängigkeiten ausdrücklich festlegen. |
+| `.forge/` | uv, CPython, OCR, Sprachdaten, Chromium, MathJax, Download- und Paket-Caches |
+| `.venv/` | Projektumgebung mit den festgelegten Python-Paketen |
+| `tools/runtime-manifest.json` | Versionen, Originalquellen, Lizenzen und Downloadprüfsummen |
+| `pyproject.toml`, `uv.lock` | Direkte und transitive Python-Abhängigkeiten |
 
-Die bestehende CI enthält laut Beitragsleitfaden bereits fokussierte
-AnkiConnect-Tests unter Windows. Das belegt noch keine Unterstützung des
-vollständigen Ablaufs auf Windows. Die weitere Prüfung soll auf vorhandenen
-Tests aufbauen.
+Beide lokalen Verzeichnisse sind gitignored und durch den Commit-Guard geschützt.
+Das Setup ändert weder Systemverzeichnisse noch den dauerhaften PATH. Nach einem
+Umzug auf einen anderen Rechner sollte die Umgebung dort neu eingerichtet werden.
 
-## Fachliche Anforderungen bleiben erhalten
+Festgelegt sind uv **0.12.10**, CPython **3.12.14 / Build 20260901**, Tesseract
+**5.5.3.20260724**, 7-Zip **26.03**, MathJax **3.2.2** und zstandard **0.25.0**.
+Die direkten Fachbibliotheken entsprechen den bisherigen Docker-Pins.
+Die Sprachdaten stammen aus `tessdata_fast` bei Commit
+`87416418657359cb625c412a48b6e1d6d41c29bd`.
 
-- Die providerneutralen Autorenanweisungen, Workflows und das Kartenformat bleiben
-  Grundlage für alle Assistenten.
-- Lint, Grounding, gegebenenfalls Coverage, Vorschau und echte Anki-Validierung
-  dürfen durch den neuen Einstiegspunkt nicht unbemerkt entfallen. Fehlende
-  Prüfungen werden klar als solche ausgewiesen.
-- Anki-GUIDs, Notiztypen und Cloze-Zuordnungen müssen bei Reworks erhalten bleiben.
-- AnkiConnect bleibt optional und lokal. Vor Änderungen bleiben Backups aktiv;
-  Entfernen von Karten und Sync erfolgen weiterhin nur auf ausdrücklichen
-  Nutzerauftrag gemäß den Projektregeln.
-- Persönliche Quellen, Extrakte, Karten, Pakete und Backups bleiben lokal und
-  werden nicht veröffentlicht. Dasselbe gilt für heruntergeladene Laufzeiten
-  und lokale Caches.
+Downloads werden vor der Verwendung geprüft und zunächst temporär gespeichert.
+7zr entpackt das festgelegte 7-Zip-Paket; der vollständige Entpacker öffnet das
+Tesseract-Paket. **Die Installer werden nicht ausgeführt.** Unterstützende DLLs,
+Konfigurationen und Lizenzdateien bleiben erhalten. Die Release-DLLs aus dem
+Microsoft-CRT-Archiv **14.44.35211** liegen direkt neben den verwalteten
+Python-Executables. Debug-Runtimes und globale Installationen werden nicht verwendet.
 
-## Vorschlag für die nächsten Arbeitsschritte
+Playwright verwaltet seine passende Chromium-Version im Projekt. Die komplette
+MathJax-`es5`-Struktur wird lokal bereitgestellt, einschließlich dynamisch geladener
+TeX-Erweiterungen. Vorschauen fangen die MathJax-Ressourcenanfragen ab und liefern
+die Dateien lokal aus. Sie warten auf gerenderte SVG-Mathematik und brechen bei
+fehlenden Komponenten oder Renderfehlern ab. Docker erhält dieselben Formelassets.
+`preview --offline` weist zusätzlich externe Ressourcen wie Webbilder zurück.
+Nach erfolgreicher Einrichtung benötigt die Verarbeitung lokaler Quellen und
+Medien kein Internet; der gewählte KI-Assistent hat eigene Voraussetzungen.
 
-1. Aktuelle Werkzeuge und Dockerfiles lesen und eine konkrete Liste der
-   Abhängigkeiten sowie der Plattformannahmen erstellen.
-2. An einem sauberen Windows-System die kritischen Komponenten untersuchen:
-   Python-Einrichtung, OCR, Browser-Vorschau und echtes Anki-Backend. Erst daraus
-   eine belastbare Entscheidung zu uv, Starter und nativer Ausführung ableiten.
-3. Einen kleinen gemeinsamen Einstiegspunkt und ein wiederholbares Setup
-   entwerfen. Die bestehenden Linux-Aufrufe während der Umstellung nutzbar halten.
-4. Einen durchgängigen Ablauf mit öffentlichen, synthetischen Beispieldaten
-   umsetzen und prüfen; danach die weiteren Quellen- und Rework-Fälle anbinden.
-5. Projektanweisungen und Nutzeranleitung so aktualisieren, dass verschiedene
-   Assistenten den Einstieg selbstständig finden und ausführen können.
-6. Passende native Windows-Tests und Linux-Regressionsprüfungen ergänzen;
-   macOS und weitere Architekturen nach dokumentierter Verifikation freigeben.
+## Gemeinsame Befehle
 
-Ein sinnvolles Abnahmeszenario wäre ein frisches Windows-System mit dem
-KI-Werkzeug des Nutzers: Repository herunterladen, Einrichtungsauftrag geben,
-Text-PDF und Scan vorbereiten, Karten durch den Assistenten schreiben lassen,
-Prüfungen und Vorschau ausführen, Anki-Paket bauen und mit dem echten Backend
-validieren. Der zweite Durchlauf soll die eingerichtete Umgebung wiederverwenden.
-Die genauen unterstützten Systemversionen und Voraussetzungen sind vorher
-festzulegen; dies ist ein Zieltest, kein bereits bestandenes Ergebnis.
+Neben `setup`, `doctor`, `prep` und `finish` stehen `extract`, `figextract`,
+`figindex`, `detect`, `lint`, `grounding`, `coverage`, `build`, `preview`,
+`validate`, `decode`, `diff`, `anki` und `test` zur Verfügung.
 
-## Weiterarbeit auf diesem Branch
+Die Steuerung startet die vorhandenen Python-Werkzeuge mit dem festgelegten
+Interpreter und expliziten Argumentlisten. `prep` verbindet Extraktion,
+Textspiegelung, Figurenindex und PDF-Figurenextraktion. `finish` führt Lint,
+Grounding, bei mehreren Dateien Coverage, Build und echte Anki-Validierung aus.
+Grounding und Coverage bleiben Hinweise. Lint- und Validierungsfehler stoppen
+vor einem möglichen Import. `--push` importiert mit den bestehenden Backups;
+`--prune` und `--sync` bleiben ausdrücklich beauftragte Aktionen.
 
-Dieser Stand dokumentiert ausschließlich die Besprechung. Die Implementierung
-wird auf `feature/cross-platform-setup` fortgesetzt, sobald der nächste
-Arbeitsauftrag dazu vorliegt. Der Branch enthält keine Kopie einer lokalen
-WSL-Installation oder persönlicher Quelldateien; für praktische Tests ist auf
-dem jeweiligen Rechner eine passende Umgebung nötig.
+Unter Linux bleiben `tools/setup.sh` und die einzelnen Docker-Wrapper verfügbar.
+`prep.sh` und `finish.sh` rufen dieselbe Python-Steuerung mit Docker als Backend
+auf. Die Anki-Notiztypen, GUIDs und Cloze-Zuordnungen bleiben kompatibel.
 
-Einstieg für einen neuen Assistenten:
+## Abnahme und bekannte Grenzen
 
-> Lies AGENTS.md, CONTRIBUTING.md und docs/cross-platform-setup.md. Wir wollen die
-> Einrichtung insbesondere unter Windows vereinfachen und die freie Wahl des
-> KI-Assistenten beibehalten. Prüfe zunächst die tatsächlichen Werkzeuge und
-> Abhängigkeiten. Behandle die genannten technischen Lösungen als Vorschläge
-> und behaupte keine Plattformunterstützung ohne passende Verifikation.
+Die [Integrationsanleitung](../tests/integration/README.md) beschreibt den
+synthetischen Test mit acht Notizen, zehn Karten und 40 hellen/dunklen Vorschauen,
+PDF-/Scan-/OCR-Tests, vollständigem `finish`, Offline-Formeln und Fehlerfällen.
+Der Windows-CI-Job beginnt mit einem sauberen Quellarchiv ohne Projekt-Caches
+und ohne vorab eingerichtetes Python; er prüft die tatsächlich geladenen Werkzeuge.
+Sein Ergebnis fließt in den erforderlichen Gesamtcheck `CI passed` ein.
 
-## Im Gespräch verwendete technische Referenzen
+Für die zusätzliche Abnahme in Windows Sandbox wird der konkrete Commit als
+Archiv bereitgestellt. Projekt und Laufzeiten befinden sich im Gast. Nur das
+Eingabearchiv und ein begrenzter Diagnoseordner werden freigegeben. Der eigentliche
+Setup-Prozess läuft als Standardbenutzer. Die Aktivierung von Windows Sandbox
+und ein möglicher Neustart müssen am Host separat abgestimmt werden.
 
-- [uv: Installation und fertige Binärdateien](https://docs.astral.sh/uv/getting-started/installation/)
-- [uv: Automatische Python-Einrichtung](https://docs.astral.sh/uv/guides/install-python/)
-- [uv: Projektstruktur und Umgebungen](https://docs.astral.sh/uv/concepts/projects/layout/)
-- [Playwright für Python: Installation](https://playwright.dev/python/docs/intro)
-- [Docker Desktop: unterstützte Plattformen](https://docs.docker.com/desktop/)
-- [Docker: Einbindung von Host-Verzeichnissen](https://docs.docker.com/engine/storage/bind-mounts/)
+Ein echter Anki-Test verwendet einen eindeutig benannten synthetischen Stapel
+im Profil `test`, lernt Karten und prüft Export → Decode → Änderung → Rebuild →
+Import mit Backup. GUIDs, Notiztypen, Karten-IDs, Cloze-Zuordnungen, Lernstand und
+Review-Historie werden verglichen; es erfolgt kein Sync. Die Rückkonvertierung
+überspringt derzeit Image-Occlusion-Notizen. Der Rework-Test verwendet deshalb
+nur rückkonvertierbare Typen; Occlusion wird separat gebaut und dargestellt.
 
-Diese Referenzen stützen die diskutierten Möglichkeiten. Sie ersetzen keine
-Prüfung der Abhängigkeiten und des vollständigen Projektablaufs auf Windows.
+Ein erfolgreicher lokaler Lauf auf einem eingerichteten Entwicklungsrechner
+ersetzt die Sandbox-Abnahme nicht. Tatsächlich ausgeführte Prüfungen und noch
+offene Abnahmeschritte werden im Pull Request und im Abnahmebericht ausgewiesen.
+Der aktuelle Stand steht im [Windows-Abnahmebericht](windows-acceptance.md).
