@@ -12,8 +12,10 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import ssl
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.error
@@ -65,6 +67,22 @@ def verify_asset(path, asset):
         raise ValueError("Runtime assets must have an expected content digest")
 
 
+def download_tls_context():
+    """Keep platform trust and add pinned Mozilla roots on fresh Windows hosts.
+
+    A fresh Windows profile may not have populated all public roots yet. Python's
+    OpenSSL does not perform Windows' automatic root retrieval. The locked
+    certifi package supplies these roots without weakening TLS verification or
+    replacing existing Windows/custom certificate authorities.
+    """
+    context = ssl.create_default_context()
+    if sys.platform == "win32":
+        import certifi
+
+        context.load_verify_locations(cafile=certifi.where())
+    return context
+
+
 def fetch_asset(asset, cache_dir, *, offline=False):
     """Download atomically; reuse only a cache entry whose content still matches."""
     cache = Path(cache_dir).resolve()
@@ -90,7 +108,7 @@ def fetch_asset(asset, cache_dir, *, offline=False):
         with os.fdopen(descriptor, "wb") as output:
             print(f"Downloading {name}...", flush=True)
             request = urllib.request.Request(asset["url"], headers={"User-Agent": "anki-card-forge-setup/1"})
-            with urllib.request.urlopen(request, timeout=120) as response:
+            with urllib.request.urlopen(request, timeout=120, context=download_tls_context()) as response:
                 shutil.copyfileobj(response, output)
         verify_asset(partial, asset)
         os.replace(partial, destination)

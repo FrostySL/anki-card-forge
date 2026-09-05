@@ -6,10 +6,12 @@ import io
 import json
 import os
 from pathlib import Path
+import ssl
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 from _tools import load
@@ -28,6 +30,35 @@ class RuntimeAssets(unittest.TestCase):
         self.payload = b"verified runtime fixture\n"
         self.asset = {"filename": "fixture.zip", "url": "https://example.invalid/fixture.zip",
                       "sha256": hashlib.sha256(self.payload).hexdigest()}
+
+    def test_windows_download_trust_extends_default_context_with_locked_ca_bundle(self):
+        context = Mock(check_hostname=True, verify_mode=ssl.CERT_REQUIRED)
+        certifi = SimpleNamespace(where=lambda: "locked-certifi/cacert.pem")
+        with patch.object(assets.sys, "platform", "win32"), \
+             patch.object(assets.ssl, "create_default_context", return_value=context) as defaults, \
+             patch.dict(assets.sys.modules, {"certifi": certifi}):
+            self.assertIs(assets.download_tls_context(), context)
+        defaults.assert_called_once_with()
+        context.load_verify_locations.assert_called_once_with(cafile="locked-certifi/cacert.pem")
+        self.assertIs(context.check_hostname, True)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_linux_download_context_remains_stdlib_with_certificate_verification(self):
+        with patch.object(assets.sys, "platform", "linux"), patch.dict(assets.sys.modules, {"certifi": None}):
+            context = assets.download_tls_context()
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_download_passes_verified_context_and_fails_closed_on_bad_certificate(self):
+        context = object()
+        failure = assets.urllib.error.URLError(ssl.SSLCertVerificationError("untrusted issuer"))
+        with patch.object(assets, "download_tls_context", return_value=context), \
+             patch.object(assets.urllib.request, "urlopen", side_effect=failure) as request:
+            with self.assertRaisesRegex(RuntimeError, "untrusted issuer"):
+                assets.fetch_asset(self.asset, self.root)
+        self.assertIs(request.call_args.kwargs["context"], context)
+        request.assert_called_once()
+        self.assertEqual(list(self.root.iterdir()), [])
 
     def wheel_fixture(self):
         site = self.root / ".venv" / "Lib" / "site-packages"

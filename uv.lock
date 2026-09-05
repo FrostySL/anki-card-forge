@@ -30,6 +30,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "anki" },
+    { name = "certifi" },
     { name = "genanki" },
     { name = "pillow" },
     { name = "playwright" },
@@ -42,6 +43,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anki", specifier = "==26.5" },
+    { name = "certifi", specifier = "==2026.7.22" },
     { name = "genanki", specifier = "==0.13.1" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "playwright", specifier = "==1.60.0" },

@@ -70,6 +70,11 @@ Konfigurationen und Lizenzdateien bleiben erhalten. Die Release-DLLs aus dem
 Microsoft-CRT-Archiv **14.44.35211** liegen direkt neben den verwalteten
 Python-Executables. Debug-Runtimes und globale Installationen werden nicht verwendet.
 
+Für HTTPS-Downloads ergänzt das festgelegte Python-Paket `certifi` die vorhandenen
+Windows-Zertifikate um öffentliche Stammzertifikate. Damit funktionieren Downloads
+auch mit einem noch nicht gefüllten Windows-Zertifikatsspeicher. Die Zertifikats-
+und Hostnamenprüfung bleiben aktiv; der System-Zertifikatsspeicher wird nicht geändert.
+
 Playwright verwaltet seine passende Chromium-Version im Projekt. Die komplette
 MathJax-`es5`-Struktur wird lokal bereitgestellt, einschließlich dynamisch geladener
 TeX-Erweiterungen. Vorschauen fangen die MathJax-Ressourcenanfragen ab und liefern
