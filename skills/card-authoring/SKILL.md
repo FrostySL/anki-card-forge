@@ -96,8 +96,9 @@ Night mode: `.card` deliberately sets **no** fixed `color`/`background` → Anki
 colors text+background per theme itself (tables/borders use translucent grays).
 So **no hard-coded colors** in the fields, or you get dark text on a dark
 background. (Do not rely on `.nightMode .card` — it does not apply in every Anki
-version.) Math renders in the preview only online (CDN); the finished `.apkg`
-always renders it (Anki ships MathJax).
+version.) Previews render math with local MathJax, including dynamically loaded
+extensions; rendering failures stop the preview. `preview --offline` additionally
+rejects web media. Anki uses its bundled MathJax for the finished `.apkg`.
 
 ## Avoiding interference
 
