@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Talks to a running Anki desktop via the AnkiConnect add-on (stdlib only, no
-dependencies) — push a built .apkg straight into Anki, export a deck back out
+"""Talks to a running Anki desktop via the AnkiConnect add-on — push a built
+.apkg straight into Anki, export a deck back out
 (for the GUID-preserving rebuild), or trigger sync.
 
 Requires:
   - Anki desktop running.
   - The AnkiConnect add-on installed (code 2055492159: Tools -> Add-ons ->
     Get Add-ons... -> 2055492159 -> restart Anki).
+  - Python zstandard or the zstd CLI for modern export/backup decoding.
+    The HTTP commands themselves use only the standard library.
 
 Usage:
     python3 tools/anki_connect.py ping
@@ -40,6 +42,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -170,23 +173,46 @@ def _prune_backups(keep=BACKUP_KEEP):
         shutil.rmtree(os.path.join(BACKUP_DIR, d))
 
 
-def _export_package(deck, path):
-    """exportPackage with result verification. AnkiConnect returns `false`
-    WITHOUT an error envelope e.g. for an unknown deck name — that must never
-    pass as success (the backup safety net would silently be missing). Any
-    pre-existing file at the target is removed first, so a failed export can
-    never leave a stale .apkg behind that looks like a fresh one."""
-    abs_path = os.path.abspath(path)
-    if os.path.exists(abs_path):
-        os.unlink(abs_path)
-    result = invoke("exportPackage", deck=deck, path=abs_path, includeSched=True)
-    if result is not True or not os.path.isfile(abs_path):
+def _export_needs_staging(path):
+    """Windows Anki cannot reliably open its scratch SQLite DB on UNC shares."""
+    return os.name == "nt" and path.startswith("\\\\")
+
+
+def _request_export(deck, path):
+    """Require both AnkiConnect's success result and the exported file."""
+    result = invoke("exportPackage", deck=deck, path=path, includeSched=True)
+    if result is not True or not os.path.isfile(path):
         raise AnkiConnectError(
             f"Export of deck '{deck}' failed (exportPackage returned {result!r}, "
-            f"file {'exists' if os.path.isfile(abs_path) else 'missing'}). "
+            f"file {'exists' if os.path.isfile(path) else 'missing'}). "
             "Does the deck exist under exactly this name, and is the target "
             "path writable?"
         )
+
+
+def _export_package(deck, path):
+    """Export with verification, removing stale output before starting.
+
+    Anki's legacy exporter creates a sibling .anki2 database. On Windows UNC
+    paths (including WSL projects), its database locking can fail even though
+    writing a regular .apkg file works. Export locally, then copy the result.
+    """
+    abs_path = os.path.abspath(path)
+    if os.path.exists(abs_path):
+        os.unlink(abs_path)
+    if _export_needs_staging(abs_path):
+        with tempfile.TemporaryDirectory(prefix="anki-card-forge-export-") as tmp:
+            staged_path = os.path.join(tmp, "deck.apkg")
+            _request_export(deck, staged_path)
+            try:
+                shutil.copy2(staged_path, abs_path)
+            except OSError:
+                # A failed copy must not leave a partial backup looking fresh.
+                if os.path.isfile(abs_path):
+                    os.unlink(abs_path)
+                raise
+    else:
+        _request_export(deck, abs_path)
 
 
 def _unique_safe_names(deck_names):

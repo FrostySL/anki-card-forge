@@ -35,7 +35,7 @@ import pymupdf4llm
 DEFAULT_LANG = "eng+deu"
 MIN_CHARS = 20  # fewer alphanumeric chars on the page -> mark as (empty)
 TEXT_EXTS = (".md", ".markdown", ".txt")
-# Meta files, not sources: context.md steers card authoring (see CLAUDE.md)
+# Meta files, not sources: context.md steers card authoring (see AGENTS.md)
 # and must not become a grounding source.
 META_NAMES = ("context.md", "kontext.md")
 

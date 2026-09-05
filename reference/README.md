@@ -1,6 +1,6 @@
 # reference/ — local reference material (not in the repo)
 
-This folder serves Claude as a **reference** on Anki. The content is
+This folder gives any assistant or contributor a **reference** on Anki. The content is
 **third-party code with its own license** and is therefore **not** versioned
 here (see `.gitignore`) — only this note file is.
 

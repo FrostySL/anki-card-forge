@@ -7,6 +7,7 @@ absent), then removed again — so test_build_smoke.py still decides genanki
 availability for itself. This lets the pure logic (stable_id, box clamping,
 cloze numbering) be tested on the host and in CI regardless of genanki.
 """
+from html.parser import HTMLParser
 import sys
 import types
 import unittest
@@ -115,6 +116,69 @@ class TestBoxStyleClamp(unittest.TestCase):
         import re
         vals = [float(p) for p in re.findall(r"([\d.]+)%", style)]
         self.assertTrue(all(0.0 <= v <= 100.0001 for v in vals), style)
+
+
+class TestOcclusionTargets(unittest.TestCase):
+    REGIONS = [
+        {"label": "INPUT", "x": .1, "y": .2, "w": .2, "h": .1},
+        {"label": "OUTPUT", "x": .6, "y": .2, "w": .2, "h": .1},
+    ]
+
+    @staticmethod
+    def masks(markup):
+        class Masks(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.items = []
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if "io-mask" in attrs.get("class", "").split():
+                    self.items.append(attrs)
+
+        parser = Masks()
+        parser.feed(markup)
+        return parser.items
+
+    def render(self, target, mode, reveal=False):
+        return bd._occlusion_html("diagram.png", self.REGIONS, target, mode,
+                                  reveal, "Name the queried block.", "")
+
+    def test_hide_all_questions_identify_different_targets_without_revealing_labels(self):
+        fronts = [self.render(target, "hide-all") for target in range(2)]
+        self.assertNotEqual(fronts[0], fronts[1])
+        for target, front in enumerate(fronts):
+            with self.subTest(target=target):
+                masks = self.masks(front)
+                self.assertEqual(len(masks), 2)  # Both answers remain hidden.
+                active = [m for m in masks if "io-mask-target" in m["class"].split()]
+                self.assertEqual(len(active), 1)
+                self.assertEqual(active[0]["style"], bd._box_style(self.REGIONS[target]))
+                self.assertEqual(active[0]["aria-label"], "Question region")
+                self.assertIn(">?</span>", front)  # A non-color cue identifies the target.
+                for region in self.REGIONS:
+                    self.assertNotIn(region["label"], front)
+
+    def test_hide_all_answer_reveals_only_the_queried_region(self):
+        for target in range(2):
+            with self.subTest(target=target):
+                back = self.render(target, "hide-all", reveal=True)
+                masks = self.masks(back)
+                self.assertEqual(len(masks), 1)
+                self.assertEqual(masks[0]["style"], bd._box_style(self.REGIONS[1-target]))
+                self.assertNotIn("io-mask-target", back)
+                self.assertIn(self.REGIONS[target]["label"], back)
+                self.assertNotIn(self.REGIONS[1-target]["label"], back)
+
+    def test_hide_one_keeps_only_its_target_masked(self):
+        for target in range(2):
+            with self.subTest(target=target):
+                front = self.render(target, "hide-one")
+                masks = self.masks(front)
+                self.assertEqual(len(masks), 1)
+                self.assertEqual(masks[0]["style"], bd._box_style(self.REGIONS[target]))
+                self.assertNotIn("io-mask-target", front)
+                self.assertEqual(self.masks(self.render(target, "hide-one", reveal=True)), [])
 
 
 if __name__ == "__main__":

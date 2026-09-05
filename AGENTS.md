@@ -1,9 +1,47 @@
-# anki-card-forge — project guide (for Claude)
+# anki-card-forge — shared project guide
 
-This project turns **source files into Anki flashcards**.
-**Claude (me) is the AI** that authors the card content — there is **no**
-external LLM call and no API key. Docker only does the dumb
-"card JSON → `.apkg`" part via the `genanki` library.
+This project turns **source files into Anki flashcards**. The AI assistant
+chosen by the user authors the card content and writes provider-independent
+`*.cards.json` files. The repository itself makes **no model API calls** and
+requires **no model API key**; any model access, credentials, cost and source-data
+handling belong to the assistant or service the user chooses. Docker builds the
+Anki packages and runs the extraction, preview and validation tools.
+
+## Assistant capabilities and entry points
+
+These instructions apply to any AI assistant or a manual workflow. Use the
+available tools in your environment to read and write project files, run the
+documented shell/Python commands, and inspect images or rendered PDF pages.
+References to reading text or viewing images describe capabilities, not a
+particular vendor's tool names or parameter syntax.
+
+Read this guide and `skills/card-authoring/SKILL.md` before authoring cards.
+The provider-neutral task workflows are `workflows/forge.md` (new cards) and
+`workflows/rework.md` (existing decks). If your assistant does not discover
+these files automatically, explicitly open or provide them together with the
+source material. A chat-only assistant can produce the same JSON; the user then
+runs the repository's CLI checks and build commands locally.
+
+For visual material, use an assistant with image inspection or have the user
+review the relevant figures and rendered cards. If a required command or visual
+check cannot be performed in the current environment, state that limitation
+and which check remains; do not report the deck as fully verified.
+
+## Developing the repository
+
+For code, tooling, and documentation changes, follow
+[CONTRIBUTING.md](CONTRIBUTING.md): use one `feat/…`, `fix/…`, or `chore/…`
+branch per change, run the relevant checks, and submit a pull request to `main`.
+Do not commit or push directly to `main`, or force-push it. Review the diff and
+merge only with the required CI checks green on the current revision; use a
+squash merge and delete the merged branch. No second person's approval is
+required for this solo-maintained project.
+
+Keep personal sources, extracts, decks, and backups local. Enable the commit
+guard and inspect staged files before committing. CI can block a merge of
+forbidden files, but cannot undo their publication when pushed to a public
+branch. These development rules apply to every AI provider; making personal
+cards does not require a code branch or pull request.
 
 ## Card language
 
@@ -22,13 +60,15 @@ Tesseract language packs in `Dockerfile.extract`).
 |---|---|
 | `sources/<topic>/` | Sources **per topic** in their own subfolder (e.g. `sources/Biology/`, `sources/Math/`, `sources/SoftwareEngineering/`). PDFs/texts/Markdown. Optionally a **`context.md`** (tolerate other spellings/languages, e.g. `Kontext.md` — when in doubt `ls sources/<topic>/`) with context about the topic (what it is, why it's needed, focus, exam relevance) — read it **before** building cards. |
 | `decks/<topic>/` | Mirrors the topics: generated `.cards.json` **and** `.apkg` live in the same topic folder (e.g. `decks/Biology/`). |
-| `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). This is where I read/cite efficiently instead of from the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF via the Read tool (`pages="<p>"`) **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.png`** (manifest `<name>.figures.json`: page, bbox 0..1, kind). Gitignored (derived, reproducible). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback; **text/Markdown sources** are mirrored 1:1 into `extracted/`, no page markers), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json; **`--against decks/_anki-mirror/`** additionally dedupes against the live collection), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs and media preserved** — for changing already-learned decks without losing progress), `deck_diff.py` (**diff two deck versions by GUID**: added/removed/changed + cloze-safety warnings; run before every rework push, `--strict` as a gate), `anki_connect.py` (**optional**: drive a running Anki via the AnkiConnect add-on, code 2055492159 — `ping`/`decks`/`push <apkg>` (`--dry-run` previews)/`export <deck> <apkg>`/`sync`/`mirror`/`update-note`/`restore [--list]`; pure local HTTP to 127.0.0.1:8765, stdlib only, no Docker, no credentials; clear error message if Anki/add-on is unreachable). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one; routes `--lang`/`-j` to extract, `--zoom`/`--min-area`/… to figextract), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg; `--push [--prune] [--sync]` imports the result into Anki via AnkiConnect). **Setup:** `setup.sh` (fresh-clone health check: Docker/Python, commit guard, builder image, example-deck smoke test). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
-| `.githooks/` | **Commit guard** (`pre-commit`): the repo is **public** — the hook blocks commits that would add personal material (sources/, extracted/, decks/ content, PDFs/.apkg), even with `git add -f`. Active via `git config core.hooksPath .githooks` (once per clone). If it blocks wrongly: extend the allowlist in the hook, don't blindly `--no-verify`. |
-| `.claude/` | `skills/card-authoring/` (card methodology), `commands/` (`/forge`, `/rework` slash commands), `hooks/lint_cards_hook.py` (auto-lints a cards.json right after it is written). **`settings.json` wires that hook up (PostToolUse) — it is model-independent (plain Python, no API/key) and only ever gives feedback, never blocks destructively. Opt out by deleting `settings.json`.** |
+| `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). Read and cite these extracts efficiently instead of loading the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF with an available PDF viewer or render the page to an image and inspect it **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.png`** (manifest `<name>.figures.json`: page, bbox 0..1, kind). Gitignored (derived, reproducible). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback; **text/Markdown sources** are mirrored 1:1 into `extracted/`, no page markers), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json; **`--against decks/_anki-mirror/`** additionally dedupes against the live collection), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs and media preserved** — for changing already-learned decks without losing progress), `deck_diff.py` (**diff two deck versions by GUID**: added/removed/changed + cloze-safety warnings; run before every rework push, `--strict` as a gate), `anki_connect.py` (**optional**: drive a running Anki via the AnkiConnect add-on, code 2055492159 — `ping`/`decks`/`push <apkg>` (`--dry-run` previews)/`export <deck> <apkg>`/`sync`/`mirror`/`update-note`/`restore [--list]`; local HTTP to 127.0.0.1:8765 by default; HTTP uses stdlib, modern backup decoding needs Python `zstandard` or the `zstd` CLI; no Docker or credentials; clear error message if Anki/add-on is unreachable). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one; routes `--lang`/`-j` to extract, `--zoom`/`--min-area`/… to figextract), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg; `--push [--prune] [--sync]` imports the result into Anki via AnkiConnect). **Setup:** `setup.sh` (fresh-clone health check: Docker/Python, commit guard, builder image, example-deck smoke test). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
+| `.githooks/` | **Commit guard** (`pre-commit`): the repo is **public** — the hook blocks commits that would add personal material (sources/, extracted/, decks/ content, PDFs/.apkg), even with `git add -f`. Active via `git config core.hooksPath .githooks` (once per clone). The shared allowlist lives in `tools/check_repo_files.py` and is also checked by CI. If it blocks wrongly: inspect the content and extend that allowlist, don't blindly `--no-verify`. |
+| `skills/card-authoring/` | Shared card methodology (`SKILL.md`) and evidence (`research.md`), usable with any assistant. |
+| `workflows/` | Provider-neutral task instructions: `forge.md` for new cards and `rework.md` for changes to existing decks. |
+| `.claude/` | Optional Claude Code compatibility adapters: `skills/card-authoring/SKILL.md` and `commands/` (`/forge`, `/rework`) point to the shared instructions. `settings.json` connects the Claude-specific PostToolUse event to `hooks/lint_cards_hook.py` for automatic lint feedback after writes. Other assistants use `python3 tools/lint_cards.py <file>` or `tools/finish.sh`; the shared quality checks do not depend on this hook. Opt out of the Claude integration by removing `.claude/settings.json`. |
 | `reference/` | **Local** Anki reference works (manual + source code), **not in the repo** (third-party license/AGPL) — optionally clone locally, see `reference/README.md`. |
 | `reference/anki-manual/` | Official Anki manual as a reference (don't touch). If present locally. |
-| `reference/anki/` | Anki source code (shallow clone) as a reference — **read only**, if present locally. Has its own `CLAUDE.md`/`AGENTS.md`; those are Anki's dev notes, not for this project. Native image-occlusion format: `rslib/src/image_occlusion/imageocclusion.rs`. |
+| `reference/anki/` | Anki source code (shallow clone) as a reference — **read only**, if present locally. May have its own assistant instructions; those are Anki's dev notes, not for this project. Native image-occlusion format: `rslib/src/image_occlusion/imageocclusion.rs`. |
 
 ## Workflow when the user wants cards
 
@@ -55,15 +95,15 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
    are processed **in parallel** (all CPU cores); individual steps remain available
    via `./tools/extract.sh` (`-j N` to limit, `--lang` for other OCR languages) and
    `./tools/figextract.sh` (tune `--min-area`/`--zoom`).
-3. **Read** the `.md` (Read tool); look up sections/pages as needed.
+3. **Read** the `.md` with any text/file reader; look up sections/pages as needed.
    **Image check:** the `.md` contains **no images**, only captions. Check
    `<name>.figures.md` (or the `· N fig.` markers) for where figures live. If a
    concept is **spatial/visual** (diagram, graph, schematic) or the image carries
    information the text does not → **cheaply view the cropped figure** under
-   `extracted/<topic>/figures/<name>_p<page>_*.png` with the Read tool (instead of
+   `extracted/<topic>/figures/<name>_p<page>_*.png` with an available image viewer (instead of
    loading the whole PDF page) and decide whether an `occlusion`/image card is
    needed. If a crop is missing (vector not detected) → view the original PDF page
-   (`pages="<p>"`). That way no image gets overlooked.
+   (directly or rendered to an image). That way no image gets overlooked.
 4. **Create** the cards (follow the `card-authoring` skill!) and write them as JSON
    to `decks/<topic>/<name>.cards.json` (format below).
 5. **Build** the package:
@@ -112,6 +152,10 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
   never "convert" such notes by rebuilding, that duplicates them. Field names
   are the note type's real (possibly German) names — `notesInfo` shows them.
 - Endpoint override via `ANKICONNECT_URL` (default `http://127.0.0.1:8765`).
+- **WSL project with Windows Anki:** run AnkiConnect through Windows Python
+  and convert script/package paths with `wslpath -w`. Keep build commands in
+  WSL. See [the WSL setup](ANKICONNECT.md#wsl2-project-with-anki-on-windows)
+  for the interpreter, compression dependency, and separate build/import steps.
 - Chosen over a headless AnkiWeb-login approach deliberately: local HTTP only,
   **no credentials ever** — keep it that way.
 - Full user-facing documentation (setup, commands, backups/restore,
@@ -208,7 +252,7 @@ where the boxes are placed by eye — check the result:
    ```
    → `decks/preview/<name>/NN-<type>-front.png` + `-back.png` (light) **and**
    `…-front-dark.png` + `…-back-dark.png` (Anki night mode) + `index.html`.
-3. **View the PNGs with the Read tool — light AND dark.** Check: do the occlusion
+3. **Inspect the PNGs with an image viewer — light AND dark.** Check: do the occlusion
    masks cover the right spots? Does the back show the right label? Layout ok?
    **Readable in night mode** (light text, contrast)? Night mode exposes exactly
    the mistakes that are invisible in light mode (hard-coded colors → dark on
@@ -338,7 +382,7 @@ produces **one card**.
   image size): `x`/`y` = top-left corner, `w`/`h` = width/height. `label` = the
   answer shown on the back.
 
-### How I (Claude) place the regions
+### How to place the regions
 
 **Preferred: OCR (pixel-exact).** For images with text labels, first have the
 exact boxes detected (for slides, run it on the `figextract` crop):
@@ -348,12 +392,12 @@ exact boxes detected (for slides, run it on the `figextract` crop):
 ```
 → produces `sources/image.labels.json` (detected labels with fractional
 coordinates) and `sources/image.labels.png` (image with numbered boxes). View the
-annotated PNG with the Read tool, pick the relevant labels and copy their
+annotated PNG with an available image viewer, pick the relevant labels and copy their
 `x/y/w/h` **1:1** into the occlusion `regions` (merge multi-line labels into one
 box if needed).
 
 **Fallback: by eye.** If OCR misses a label (rotated/stylized text, low
-contrast): view the image with the Read tool, estimate the box as fractions
+contrast): view the image with an available image viewer, estimate the box as fractions
 (0,0 = top left, 1,1 = bottom right).
 
 **Always afterwards:** render with `./tools/preview.sh`, view the PNG and check
@@ -363,8 +407,8 @@ re-render.
 ## Quality rules for good cards
 
 **Follow the `card-authoring` skill before creating cards**
-(`.claude/skills/card-authoring/SKILL.md`) — the evidence-based methodology
-including the checklist. Evidence/sources: `.claude/skills/card-authoring/research.md`.
+(`skills/card-authoring/SKILL.md`) — the evidence-based methodology
+including the checklist. Evidence/sources: `skills/card-authoring/research.md`.
 
 Core rules (short version, details in the skill):
 - **Atomic:** one retrievable fact per card. Long answer → split.
