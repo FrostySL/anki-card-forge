@@ -27,6 +27,22 @@ review the relevant figures and rendered cards. If a required command or visual
 check cannot be performed in the current environment, state that limitation
 and which check remains; do not report the deck as fully verified.
 
+## Developing the repository
+
+For code, tooling, and documentation changes, follow
+[CONTRIBUTING.md](CONTRIBUTING.md): use one `feat/…`, `fix/…`, or `chore/…`
+branch per change, run the relevant checks, and submit a pull request to `main`.
+Do not commit or push directly to `main`, or force-push it. Review the diff and
+merge only with the required CI checks green on the current revision; use a
+squash merge and delete the merged branch. No second person's approval is
+required for this solo-maintained project.
+
+Keep personal sources, extracts, decks, and backups local. Enable the commit
+guard and inspect staged files before committing. CI can block a merge of
+forbidden files, but cannot undo their publication when pushed to a public
+branch. These development rules apply to every AI provider; making personal
+cards does not require a code branch or pull request.
+
 ## Card language
 
 **Cards are written in the language of the source material by default** (that is
@@ -46,7 +62,7 @@ Tesseract language packs in `Dockerfile.extract`).
 | `decks/<topic>/` | Mirrors the topics: generated `.cards.json` **and** `.apkg` live in the same topic folder (e.g. `decks/Biology/`). |
 | `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). Read and cite these extracts efficiently instead of loading the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF with an available PDF viewer or render the page to an image and inspect it **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.png`** (manifest `<name>.figures.json`: page, bbox 0..1, kind). Gitignored (derived, reproducible). |
 | `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback; **text/Markdown sources** are mirrored 1:1 into `extracted/`, no page markers), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json; **`--against decks/_anki-mirror/`** additionally dedupes against the live collection), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs and media preserved** — for changing already-learned decks without losing progress), `deck_diff.py` (**diff two deck versions by GUID**: added/removed/changed + cloze-safety warnings; run before every rework push, `--strict` as a gate), `anki_connect.py` (**optional**: drive a running Anki via the AnkiConnect add-on, code 2055492159 — `ping`/`decks`/`push <apkg>` (`--dry-run` previews)/`export <deck> <apkg>`/`sync`/`mirror`/`update-note`/`restore [--list]`; local HTTP to 127.0.0.1:8765 by default; HTTP uses stdlib, modern backup decoding needs Python `zstandard` or the `zstd` CLI; no Docker or credentials; clear error message if Anki/add-on is unreachable). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one; routes `--lang`/`-j` to extract, `--zoom`/`--min-area`/… to figextract), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg; `--push [--prune] [--sync]` imports the result into Anki via AnkiConnect). **Setup:** `setup.sh` (fresh-clone health check: Docker/Python, commit guard, builder image, example-deck smoke test). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
-| `.githooks/` | **Commit guard** (`pre-commit`): the repo is **public** — the hook blocks commits that would add personal material (sources/, extracted/, decks/ content, PDFs/.apkg), even with `git add -f`. Active via `git config core.hooksPath .githooks` (once per clone). If it blocks wrongly: extend the allowlist in the hook, don't blindly `--no-verify`. |
+| `.githooks/` | **Commit guard** (`pre-commit`): the repo is **public** — the hook blocks commits that would add personal material (sources/, extracted/, decks/ content, PDFs/.apkg), even with `git add -f`. Active via `git config core.hooksPath .githooks` (once per clone). The shared allowlist lives in `tools/check_repo_files.py` and is also checked by CI. If it blocks wrongly: inspect the content and extend that allowlist, don't blindly `--no-verify`. |
 | `skills/card-authoring/` | Shared card methodology (`SKILL.md`) and evidence (`research.md`), usable with any assistant. |
 | `workflows/` | Provider-neutral task instructions: `forge.md` for new cards and `rework.md` for changes to existing decks. |
 | `.claude/` | Optional Claude Code compatibility adapters: `skills/card-authoring/SKILL.md` and `commands/` (`/forge`, `/rework`) point to the shared instructions. `settings.json` connects the Claude-specific PostToolUse event to `hooks/lint_cards_hook.py` for automatic lint feedback after writes. Other assistants use `python3 tools/lint_cards.py <file>` or `tools/finish.sh`; the shared quality checks do not depend on this hook. Opt out of the Claude integration by removing `.claude/settings.json`. |

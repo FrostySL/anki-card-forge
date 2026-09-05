@@ -118,12 +118,22 @@ class TestSafeActions(unittest.TestCase):
 class TestPush(unittest.TestCase):
     def test_sends_absolute_path(self):
         fake, payloads = urlopen_mock({"result": True, "error": None})
-        with tempfile.NamedTemporaryFile(suffix=".apkg") as f:
-            rel = os.path.relpath(f.name)
-            with mock.patch.object(ac.urllib.request, "urlopen", fake):
-                with redirect_stdout(io.StringIO()):
-                    ac.push(rel, backup=False)
+        original_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as directory:
+            package = os.path.join(directory, "test deck.apkg")
+            with open(package, "wb") as output:
+                output.write(b"mock package")
+            try:
+                # Windows temp files and a WSL/UNC checkout can be on different
+                # mounts. Exercise a relative path within its own temporary cwd.
+                os.chdir(directory)
+                with mock.patch.object(ac.urllib.request, "urlopen", fake):
+                    with redirect_stdout(io.StringIO()):
+                        ac.push("test deck.apkg", backup=False)
+            finally:
+                os.chdir(original_cwd)
         self.assertEqual(payloads[0]["action"], "importPackage")
+        self.assertEqual(payloads[0]["params"]["path"], package)
         self.assertTrue(os.path.isabs(payloads[0]["params"]["path"]))
 
     def test_missing_file_raises_before_any_request(self):

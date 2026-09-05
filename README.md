@@ -372,8 +372,9 @@ Sources, extracts, and generated decks are stored locally and excluded from
 Git via `.gitignore`. The **commit guard** (`.githooks/pre-commit`, enabled
 with `git config core.hooksPath .githooks`) additionally blocks commits that
 would add personal material (PDFs, `.apkg`, files under `sources/`,
-`extracted/`, `decks/`) — even with `git add -f`. The repository contains
-the tools, methodology, and one example deck.
+`extracted/`, `decks/`) — even with `git add -f`. Its shared path allowlist lives
+in `tools/check_repo_files.py`; CI checks the same policy against all tracked
+files. The repository contains the tools, methodology, and one example deck.
 
 These Git protections prevent accidental commits; they do not control what
 your AI assistant sends to its model provider. Source text, images, and cards
@@ -384,6 +385,11 @@ required file, shell, and image capabilities.
 
 AnkiConnect talks to the local Anki app by default. An explicitly requested
 AnkiWeb sync transfers collection data to AnkiWeb.
+
+## Contributing
+
+For changes to the tools or documentation, see [CONTRIBUTING.md](CONTRIBUTING.md)
+for the branch → pull request → checked squash merge workflow and relevant tests.
 
 ## License
 

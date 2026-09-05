@@ -4,6 +4,7 @@ The real checkout and its index are never used by the hook invocations. Git
 and Bash are required; like the container-only tests, these tests skip when
 the required executables are unavailable.
 """
+import json
 import os
 from pathlib import Path
 import shutil
@@ -15,6 +16,7 @@ import unittest
 GIT = shutil.which("git")
 BASH = shutil.which("bash")
 HOOK = Path(__file__).resolve().parent.parent / ".githooks" / "pre-commit"
+CHECKER = HOOK.parent.parent / "tools" / "check_repo_files.py"
 
 
 @unittest.skipUnless(GIT and BASH, "git and bash are required for commit guard tests")
@@ -29,6 +31,8 @@ class TestCommitGuard(unittest.TestCase):
             root = Path(directory)
             subprocess.run([GIT, "init", "--quiet", "--template=", directory],
                            env=env, check=True, capture_output=True)
+            (root / "tools").mkdir()
+            shutil.copy2(CHECKER, root / "tools/check_repo_files.py")
             # Reproduce forced additions of normally ignored personal material.
             (root / ".gitignore").write_text(
                 "sources/\nextracted/\ndecks/\n*.pdf\n*.apkg\n*.colpkg\n",
@@ -53,7 +57,7 @@ class TestCommitGuard(unittest.TestCase):
     def assert_blocked(self, path):
         result = self.run_guard(path)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn(f"BLOCKED: {path}", result.stderr)
+        self.assertIn(f"BLOCKED: {json.dumps(path)}", result.stderr)
 
     def test_provider_neutral_documentation_is_allowed(self):
         for path in ("AGENTS.md", "skills/card-authoring/SKILL.md",
@@ -92,16 +96,19 @@ class TestCommitGuard(unittest.TestCase):
                 self.assert_blocked(path)
 
     def test_pdf_and_anki_packages_are_blocked_even_in_allowed_directories(self):
+        for path in (".pdf", ".APKG", "tools/.colpkg"):
+            with self.subTest(path=path):
+                self.assert_blocked(path)
         for directory in ("", "tools/", "tests/", ".claude/", ".github/",
                           ".githooks/", "docs/", "docs/img/",
                           "skills/card-authoring/", "workflows/"):
-            for extension in ("pdf", "apkg", "colpkg"):
+            for extension in ("pdf", "apkg", "colpkg", "PDF", "ApKg", "COLPKG"):
                 path = f"{directory}personal.{extension}"
                 with self.subTest(path=path):
                     result = self.run_guard(path)
                     self.assertEqual(result.returncode, 1,
                                      result.stdout + result.stderr)
-                    self.assertIn(f"BLOCKED: {path}", result.stderr)
+                    self.assertIn(f"BLOCKED: {json.dumps(path)}", result.stderr)
                     self.assertIn("PDFs/Anki packages", result.stderr)
 
 

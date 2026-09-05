@@ -1,46 +1,7 @@
 #!/usr/bin/env bash
-# Guard for the PUBLIC repo: blocks commits that would add personal material
-# (course PDFs in sources/, extracts in extracted/, your own decks, PDFs/Anki
-# packages) — also catches 'git add -f', where .gitignore is powerless.
-# Background: exactly this kind of accident required a history rewrite once.
-#
-# Activate once per clone:  git config core.hooksPath .githooks
-# Bypass deliberately (only if clearly non-personal): git commit --no-verify
+# PUBLIC-repository file guard, shared with CI. Activate once per clone:
+#   git config core.hooksPath .githooks
 set -euo pipefail
 
-# New files (Added/Copied/Renamed) must come from these paths. Modifying already
-# tracked files is always fine (they passed this gate before).
-allowed() {
-  case "$1" in
-    tools/*|tests/*|.claude/*|.github/*|.githooks/*) return 0 ;;
-    skills/card-authoring/*.md|workflows/forge.md|workflows/rework.md) return 0 ;;
-    reference/README.md|sources/.gitkeep|decks/.gitkeep) return 0 ;;
-    decks/example.cards.json) return 0 ;;
-    docs/*.md|docs/img/*.png|docs/img/*.gif) return 0 ;;  # documentation + README images
-    docs/*) return 1 ;;  # anything else there (screen recordings, ...) stays local
-    */*) return 1 ;;  # any other subfolder: potentially personal
-    *) return 0 ;;    # root files (README.md, AGENTS.md, Dockerfile*, ...) ok
-  esac
-}
-
-bad=0
-while IFS= read -r f; do
-  case "$f" in
-    *.pdf|*.apkg|*.colpkg)
-      echo "BLOCKED: $f — PDFs/Anki packages do not belong in the public repo." >&2
-      bad=1
-      continue ;;
-  esac
-  if ! allowed "$f"; then
-    echo "BLOCKED: $f — path is not on the allowlist for the public repo" >&2
-    echo "         (personal material? sources/, extracted/, decks/ stay local)." >&2
-    bad=1
-  fi
-done < <(git diff --cached --name-only --diff-filter=ACR)
-
-if [ "$bad" -ne 0 ]; then
-  echo >&2
-  echo "Commit aborted (.githooks/pre-commit). File really intended and clearly" >&2
-  echo "non-personal? -> extend the allowlist in the hook, or 'git commit --no-verify'." >&2
-  exit 1
-fi
+PROJECT_DIR="$(git rev-parse --show-toplevel)"
+exec python3 "$PROJECT_DIR/tools/check_repo_files.py" --staged
