@@ -31,6 +31,13 @@ class TestHelpers(unittest.TestCase):
         self.assertNotIn("the", t)
         self.assertNotIn("what", t)
 
+    def test_tokens_drop_french_question_words(self):
+        t = cov._tokens("Quelle est la fonction de cette enzyme dans la cellule ?")
+        self.assertEqual(t, {"fonction", "enzyme", "cellule"})
+
+    def test_tokens_keep_oe_ligature_words_whole(self):
+        self.assertIn("cœur", cov._tokens("Comment le cœur pompe-t-il le sang ?"))
+
     def test_fmt_pages_ranges(self):
         self.assertEqual(cov._fmt_pages({1, 2, 3, 7}), "1-3, 7")
         self.assertEqual(cov._fmt_pages({5}), "5")

@@ -31,6 +31,23 @@ class TestTerms(unittest.TestCase):
         self.assertEqual(g._norm("Köln"), "koeln")
         self.assertEqual(g._norm("Größe"), "groesse")
 
+    def test_french_stopwords_dropped(self):
+        terms = g._terms("Elle est produite dans cette mitochondrie avec plusieurs enzymes")
+        self.assertIn("produite", terms)
+        self.assertIn("mitochondrie", terms)
+        self.assertIn("enzymes", terms)
+        for stop in ("elle", "dans", "cette", "avec", "plusieurs"):
+            self.assertNotIn(stop, terms)
+
+    def test_french_terms_that_are_english_words_kept(self):
+        # "comment"/"font"/"pendant" are function words in French but content
+        # words in English sources, so they must not be filtered.
+        terms = g._terms("comment font pendant")
+        self.assertEqual(terms, {"comment", "font", "pendant"})
+
+    def test_oe_ligature_is_one_word(self):
+        self.assertIn("cœur", g._terms("Le cœur pompe le sang"))
+
 
 class TestMatching(unittest.TestCase):
     def setUp(self):
@@ -147,6 +164,16 @@ class TestCheckRegression(unittest.TestCase):
         )
         self.assertEqual(rc, 0)
         self.assertNotIn("does not exist", out)      # S. 1 was found as a page
+
+    def test_grounded_french_card_has_no_stopword_noise(self):
+        rc, out = _run_check(
+            [{"type": "basic", "front": "Où est produit l'ATP ?",
+              "back": "Elle est produite dans la mitochondrie, avec plusieurs enzymes."}],
+            "<!-- p. 1 -->\n\nLa mitochondrie produit l'ATP grâce à des enzymes.\n",
+        )
+        self.assertEqual(rc, 0)
+        for stop in ("elle", "dans", "plusieurs"):
+            self.assertNotIn(stop, out.lower())      # not reported as missing
 
 
 if __name__ == "__main__":
