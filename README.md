@@ -200,7 +200,8 @@ On Linux/WSL2, add the language pack to `Dockerfile.extract` and pass `--lang`
 
 Optionally place a `context.md` next to your sources (what the material is for,
 where the focus lies, what the exam covers) — the assistant reads it first and weights
-the cards accordingly.
+the cards accordingly. A `sources/context.md` holds preferences for every topic
+(deck hierarchy, tags, card formats); a topic's own `context.md` wins on conflicts.
 
 ## Commands on Windows and Linux
 

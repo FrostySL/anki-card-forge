@@ -4,7 +4,9 @@
 plus the changes requested by the user.
 
 Read `AGENTS.md`, especially "Changing an existing/learned deck" and the
-AnkiConnect safeguards, and `skills/card-authoring/SKILL.md` first. Task steps:
+AnkiConnect safeguards, and `skills/card-authoring/SKILL.md` first. Apply the
+preferences in `sources/context.md` and `sources/<topic>/context.md`, if present,
+to the changed cards (the topic's file wins on conflicts). Task steps:
 
 On native Windows, use `.\forge.cmd anki`, `decode`, `build`, `diff` and
 `validate` instead of the Python/shell commands below. Run `.\forge.cmd setup`
