@@ -366,8 +366,11 @@ This produces, per source file:
 - `extracted/<topic>/<name>.md` — machine-readable Markdown with page markers
   (`<!-- p. 12 -->`), scanned pages OCR'd and marked `(OCR)`,
 - `extracted/<topic>/<name>.figures.md` — an index of the figures per page,
-- `extracted/<topic>/figures/<name>_p<page>_<i>.png` — cropped figures (for
-  image-occlusion cards and cheap visual checks).
+- `extracted/<topic>/figures/<name>_p<page>_<i>.jpg` / `.png` — cropped figures
+  (for image-occlusion cards and cheap visual checks). Embedded photos and scans
+  are saved as JPEG, which keeps image-heavy decks several times smaller; drawn
+  figures stay PNG for sharp lines and text. `--format png` or `--format jpg`
+  forces one format.
 
 Then tell your assistant *"the sources are already prepared — make cards from
 extracted/<topic>/…"* and it skips straight to reading and authoring. Everything
@@ -442,7 +445,7 @@ the `zstd` CLI; see [AnkiConnect setup](ANKICONNECT.md#setup-once).
 |---|---|
 | `tools/prep.sh` | prepare a source in one step: `extract` + figure index + `figextract` |
 | `tools/extract.sh` | PDF → Markdown (parallel OCR for scans; incl. figure index via `figindex.py`) |
-| `tools/figextract.sh` | crop figures out of the PDF → PNG crops + manifest |
+| `tools/figextract.sh` | crop figures out of the PDF → JPEG/PNG crops + manifest |
 | `tools/detect.sh` | OCR (Tesseract): detect label boxes for image occlusion |
 | `tools/lint_cards.py` | fast content/structure check (pure Python, no Docker) |
 | `tools/grounding_check.py` | anti-hallucination: are the answers really in the source text? |

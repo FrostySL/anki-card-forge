@@ -139,7 +139,7 @@ fact → cite the source instead of guessing.
   building, go through the figure index `extracted/<topic>/<name>.figures.md`
   (or the `· N fig.` markers). For **spatial/visual** concepts or when the image
   carries information the text does not → view the crop
-  `extracted/<topic>/figures/<name>_p<page>_*.png` with an image viewer (less
+  `extracted/<topic>/figures/<name>_p<page>_*` with an image viewer (less
   overhead than a whole PDF page; if missing, inspect the original PDF page
   directly or render it to an image) and build an
   `occlusion`/image card if warranted — the crops double as the occlusion `image`.

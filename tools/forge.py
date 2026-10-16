@@ -31,7 +31,7 @@ DOCKER_TOOLS = {"extract", "figextract", "detect", "preview", "build", "validate
 # deck names and Anki field HTML are passed as individual arguments unchanged.
 OPTIONS = {
     "extract": {"-o": "path", "--out": "path", "-j": "value", "--jobs": "value", "--lang": "value"},
-    "figextract": {k: "value" for k in ("--zoom", "--min-area", "--max-area", "--min-side")},
+    "figextract": {k: "value" for k in ("--zoom", "--min-area", "--max-area", "--min-side", "--format")},
     "figindex": {},
     "detect": {k: "value" for k in ("--lang", "--min-conf", "--gap-factor")},
     "preview": {"--theme": "value", "--offline": "switch"},
@@ -42,7 +42,7 @@ OPTIONS = {
     "diff": {"--strict": "switch"},
 }
 USAGES = {
-    "prep": "prep <file/folder> [...] [--lang eng+deu] [-j N] [--zoom Z] [--min-area A] [--max-area A] [--min-side S]",
+    "prep": "prep <file/folder> [...] [--lang eng+deu] [-j N] [--zoom Z] [--min-area A] [--max-area A] [--min-side S] [--format auto|png|jpg]",
     "finish": "finish <cards.json> [...] [out.apkg] [--push] [--prune] [--sync]",
     "build": "build <cards.json> [...] [out.apkg]",
     "validate": "validate <file.apkg>", "lint": "lint <cards.json>",

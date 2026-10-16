@@ -109,11 +109,13 @@ class TestForge(unittest.TestCase):
         self.file("extracted/Topic ü/one.md")
         self.file("extracted/Topic ü/notes.md")
         self.file("extracted/Unrelated/old.md")
-        self.dispatch("prep", ["sources/Topic ü", "--lang=eng+deu", "-j2", "--zoom", "1.5", "--min-area=0.1"])
+        self.dispatch("prep", ["sources/Topic ü", "--lang=eng+deu", "-j2", "--zoom", "1.5",
+                               "--min-area=0.1", "--format", "png"])
         self.assertEqual(self.invocations(), [
             ("extract.py", ["sources/Topic ü", "--lang", "eng+deu", "-j", "2"]),
             ("figindex.py", ["extracted/Topic ü/notes.md", "extracted/Topic ü/one.md"]),
-            ("figextract.py", ["sources/Topic ü", "--zoom", "1.5", "--min-area", "0.1"]),
+            ("figextract.py", ["sources/Topic ü", "--zoom", "1.5", "--min-area", "0.1",
+                               "--format", "png"]),
         ])
 
     def test_text_prep_skips_cropping_and_direct_custom_output_is_indexed(self):

@@ -90,5 +90,21 @@ class TestFigextractExitCode(unittest.TestCase):
         self.assertEqual(rc, 1)
 
 
+class TestFigextractCropFormat(unittest.TestCase):
+    def test_auto_saves_raster_as_jpeg_and_vector_as_png(self):
+        self.assertEqual(fx._crop_ext("raster", "auto"), "jpg")
+        self.assertEqual(fx._crop_ext("vector", "auto"), "png")
+
+    def test_explicit_format_applies_to_every_kind(self):
+        for kind in ("raster", "vector"):
+            self.assertEqual(fx._crop_ext(kind, "png"), "png")
+            self.assertEqual(fx._crop_ext(kind, "jpg"), "jpg")
+
+    def test_unknown_format_is_rejected(self):
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                fx.main(["sources/x.pdf", "--format", "gif"])
+
+
 if __name__ == "__main__":
     unittest.main()

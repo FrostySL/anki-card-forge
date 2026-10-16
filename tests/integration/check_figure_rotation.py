@@ -33,6 +33,9 @@ def main():
                 manifest = json.loads((output / (pdf.stem + ".figures.json")).read_text())
                 figure, = manifest["figures"]
                 assert figure["kind"] == kind
+                # Default auto format: embedded photos as JPEG, drawings as PNG.
+                expected_ext = ".jpg" if kind == "raster" else ".png"
+                assert figure["image"].endswith(expected_ext), (kind, figure["image"])
                 for name, value in figextract._frac(expected, page_bounds).items():
                     assert abs(figure[name] - value) < .0002, (rotation, name, figure)
                 crop = fitz.Pixmap(figure["image"])
@@ -40,7 +43,12 @@ def main():
                 red = sum(samples[i] > 240 and samples[i + 1] < 15 and samples[i + 2] < 15
                           for i in range(0, len(samples), crop.n))
                 assert red / (crop.width * crop.height) > .98, (kind, rotation, "wrong crop")
-    print("PASS: raster/vector crops and coordinates at 0, 90, 180 and 270 degrees")
+        pdf = root / "raster-0.pdf"
+        output = root / "raster-png"
+        assert figextract.extract(str(pdf), str(output), zoom=1, fmt="png") == 1
+        figure, = json.loads((output / (pdf.stem + ".figures.json")).read_text())["figures"]
+        assert figure["image"].endswith(".png") and Path(figure["image"]).is_file(), figure
+    print("PASS: raster/vector crops, formats and coordinates at 0, 90, 180 and 270 degrees")
 
 
 if __name__ == "__main__":
