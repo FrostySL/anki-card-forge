@@ -29,7 +29,8 @@ _WORD_RE = re.compile(r"[0-9A-Za-zÀ-ÿŒœ]+")
 _PAGE_CITE_RE = re.compile(r"\b(?:p|S)\.\s*(\d+)")
 _MARKER_RE = re.compile(r"<!--\s*(?:p|S)\.\s*(\d+)([^>]*?)-->")
 # German + English + French question/function words; other languages just skip
-# filtering.
+# filtering. French omits words that are also English content words (comment,
+# son, par, pour), as in grounding_check.py.
 _STOP = set("""
 und oder der die das den dem des ein eine einen einem einer eines kein keine was
 ist sind welche welcher welches wie warum wozu wann wo wer wieviel nenne nennen
@@ -37,8 +38,8 @@ fuer für mit von zu im in an um es bei auf aus nicht so dies diese woran wodurc
 the and for with that this from are was were what which when where who why how
 does name give state which
 les une est sont que qui quoi quel quelle quels quelles lequel laquelle lesquels
-lesquelles comment pourquoi quand combien dont pour par avec sans dans sur sous
-aux ces cet cette son ses leur leurs pas citer citez nommer nommez donner donnez
+lesquelles pourquoi quand combien dont avec sans dans sur sous
+aux ces cet cette ses leur leurs pas citer citez nommer nommez donner donnez
 """.split())
 
 

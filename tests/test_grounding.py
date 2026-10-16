@@ -42,8 +42,8 @@ class TestTerms(unittest.TestCase):
     def test_french_terms_that_are_english_words_kept(self):
         # "comment"/"font"/"pendant" are function words in French but content
         # words in English sources, so they must not be filtered.
-        terms = g._terms("comment font pendant")
-        self.assertEqual(terms, {"comment", "font", "pendant"})
+        terms = g._terms("comment font pendant pour")
+        self.assertEqual(terms, {"comment", "font", "pendant", "pour"})
 
     def test_oe_ligature_is_one_word(self):
         self.assertIn("cœur", g._terms("Le cœur pompe le sang"))
