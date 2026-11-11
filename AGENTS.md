@@ -95,7 +95,7 @@ Tesseract language packs in `Dockerfile.extract`).
 
 | Folder | Purpose |
 |---|---|
-| `sources/<topic>/` | Sources **per topic** in their own subfolder (e.g. `sources/Biology/`, `sources/Math/`, `sources/SoftwareEngineering/`). PDFs/texts/Markdown. Optionally a **`context.md`** (tolerate other spellings/languages, e.g. `Kontext.md` — when in doubt `ls sources/<topic>/`) with context about the topic (what it is, why it's needed, focus, exam relevance) — read it **before** building cards. |
+| `sources/<topic>/` | Sources **per topic** in their own subfolder (e.g. `sources/Biology/`, `sources/Math/`, `sources/SoftwareEngineering/`). PDFs/texts/Markdown. Optionally a **`context.md`** (tolerate other spellings/languages, e.g. `Kontext.md` — when in doubt `ls sources/<topic>/`) with context about the topic (what it is, why it's needed, focus, exam relevance) — read it **before** building cards. A **`sources/context.md`** directly in `sources/` holds the user's preferences for **all** topics (deck hierarchy, tags, card formats, report) — read it before the topic's file; the topic's file wins on conflicts. |
 | `decks/<topic>/` | Mirrors the topics: generated `.cards.json` **and** `.apkg` live in the same topic folder (e.g. `decks/Biology/`). |
 | `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). Read and cite these extracts efficiently instead of loading the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF with an available PDF viewer or render the page to an image and inspect it **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.png`** (manifest `<name>.figures.json`: page, bbox 0..1, kind). Gitignored (derived, reproducible). |
 | `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback; **text/Markdown sources** are mirrored 1:1 into `extracted/`, no page markers), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json; **`--against decks/_anki-mirror/`** additionally dedupes against the live collection), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs and media preserved** — for changing already-learned decks without losing progress), `deck_diff.py` (**diff two deck versions by GUID**: added/removed/changed + cloze-safety warnings; run before every rework push, `--strict` as a gate), `anki_connect.py` (**optional**: drive a running Anki via the AnkiConnect add-on, code 2055492159 — `ping`/`decks`/`push <apkg>` (`--dry-run` previews)/`export <deck> <apkg>`/`sync`/`mirror`/`update-note`/`restore [--list]`; local HTTP to 127.0.0.1:8765 by default; HTTP uses stdlib, modern backup decoding needs Python `zstandard` or the `zstd` CLI; no Docker or credentials; clear error message if Anki/add-on is unreachable). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one; routes `--lang`/`-j` to extract, `--zoom`/`--min-area`/… to figextract), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg; `--push [--prune] [--sync]` imports the result into Anki via AnkiConnect). **Setup:** `setup.sh` (fresh-clone health check: Docker/Python, commit guard, builder image, example-deck smoke test). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
@@ -115,9 +115,12 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
 `"Biology::Cellular respiration"`).
 
 1. The source file is in `sources/<topic>/` (e.g. `sources/Biology/cellular_respiration.pdf`).
-   **If a `sources/<topic>/context.md` exists (any spelling, e.g. `Kontext.md`),
-   read it first** — it says what the topic is about and where the focus lies;
-   that steers selection and emphasis of the cards.
+   **If a `sources/context.md` exists, read it first** — the user's general
+   preferences for every topic (deck hierarchy, tags, card formats, report).
+   **Then, if a `sources/<topic>/context.md` exists (any spelling, e.g.
+   `Kontext.md`), read it** — it says what the topic is about and where the
+   focus lies; that steers selection and emphasis of the cards and overrides
+   the general preferences where they conflict.
 2. **Prepare the source** (once per new file): PDF → machine-readable Markdown
    **and** crop the figures — in one step:
    ```bash
