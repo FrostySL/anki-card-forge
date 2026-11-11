@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Crops figures out of source PDFs as PNGs (for image/occlusion cards and a
+"""Crops figures out of source PDFs as images (for image/occlusion cards and a
 cheap visual check).
 
 Usage (normally via tools/figextract.sh inside the extract container):
     python figextract.py sources/SWT/04_UML.pdf
     python figextract.py sources/SWT/                  # whole topic folder
     python figextract.py sources/SWT/04_UML.pdf --min-area 0.05 --zoom 2.5
+    python figextract.py sources/SWT/04_UML.pdf --format png   # PNG for every crop
 
 Why: the extracted .md contains captions only, no pixels. Slide diagrams
 (UML/OOD ...) live in the PDF as vector graphics or embedded raster images and
@@ -15,7 +16,7 @@ extracts them:
   - **vector clusters** (drawn diagrams) via PyMuPDF cluster_drawings().
 
 Result per PDF (mirrored into extracted/<topic>/):
-  extracted/<topic>/figures/<name>_p<page>_<i>.png   — the crops
+  extracted/<topic>/figures/<name>_p<page>_<i>.jpg|.png — the crops
   extracted/<topic>/<name>.figures.json              — manifest (page, bbox 0..1, kind)
 
 The crops are small -> cheap to inspect with an image viewer (instead of loading the
@@ -23,6 +24,12 @@ whole PDF page) and directly usable as an occlusion `image` (path relative to th
 project root, file names globally unique via the <name> prefix). Page numbers are
 1-based like the `<!-- p. N -->` markers in the .md and the `<name>.figures.md`
 (caption index, figindex.py).
+
+Format (--format, default auto): embedded raster images (photos, scans) are
+saved as JPEG, several times smaller than PNG with no visible loss at quality 90,
+which keeps image-heavy decks light; drawn vector figures stay PNG, whose
+lossless edges keep thin lines and small text sharp. `png` or `jpg` forces one
+format for every crop.
 """
 import argparse
 import json
@@ -30,6 +37,9 @@ import os
 import sys
 
 import fitz  # PyMuPDF
+
+FORMATS = ("auto", "png", "jpg")
+JPEG_QUALITY = 90
 
 
 def _rects_from_images(page):
@@ -110,8 +120,15 @@ def _figures_on_page(page, min_area, max_area, min_side):
     return out
 
 
+def _crop_ext(kind, fmt):
+    """File extension of a crop: auto = JPEG for raster images, PNG for drawings."""
+    if fmt == "auto":
+        return "jpg" if kind == "raster" else "png"
+    return fmt
+
+
 def extract(in_path, out_dir, zoom=2.0, min_area=0.03, max_area=0.92,
-            min_side=0.06, max_per_page=8):
+            min_side=0.06, max_per_page=8, fmt="auto"):
     stem = os.path.splitext(os.path.basename(in_path))[0]
     fig_dir = os.path.join(out_dir, "figures")
     manifest = []
@@ -123,9 +140,9 @@ def extract(in_path, out_dir, zoom=2.0, min_area=0.03, max_area=0.92,
         if figs:
             os.makedirs(fig_dir, exist_ok=True)
         for n, (kind, rect, frac, area) in enumerate(figs, start=1):
-            fname = f"{stem}_p{i + 1}_{n}.png"
+            fname = f"{stem}_p{i + 1}_{n}.{_crop_ext(kind, fmt)}"
             rel = os.path.join(fig_dir, fname)
-            page.get_pixmap(matrix=mat, clip=rect).save(rel)
+            page.get_pixmap(matrix=mat, clip=rect).save(rel, jpg_quality=JPEG_QUALITY)
             manifest.append({
                 "page": i + 1,            # 1-based like the <!-- p. N --> markers
                 "kind": kind,             # raster | vector
@@ -172,7 +189,7 @@ def _pdfs_in(folder):
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description="Crop figures out of a PDF (-> PNG crops).")
+    ap = argparse.ArgumentParser(description="Crop figures out of a PDF (-> JPEG/PNG crops).")
     ap.add_argument("input", help="PDF file or folder (e.g. sources/SWT/)")
     ap.add_argument("--zoom", type=float, default=2.0, help="render zoom of the crops (default 2.0)")
     ap.add_argument("--min-area", type=float, default=0.03,
@@ -181,6 +198,9 @@ def main(argv):
                     help="largest figure (default 0.92; above = page background)")
     ap.add_argument("--min-side", type=float, default=0.06,
                     help="smallest edge length as a fraction (default 0.06)")
+    ap.add_argument("--format", choices=FORMATS, default="auto",
+                    help="crop format: auto = JPEG for embedded images, PNG for "
+                         "drawn figures (default); png or jpg for every crop")
     args = ap.parse_args(argv)
 
     inputs = _pdfs_in(args.input) if os.path.isdir(args.input) else [args.input]
@@ -195,7 +215,7 @@ def main(argv):
             continue
         processed += 1
         total += extract(p, _default_out_dir(p), args.zoom,
-                         args.min_area, args.max_area, args.min_side)
+                         args.min_area, args.max_area, args.min_side, fmt=args.format)
     print(f"Done: {total} figure(s) across all files.")
     if processed == 0:
         # Everything skipped (typo'd path etc.) must not look like success —

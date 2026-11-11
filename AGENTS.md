@@ -97,8 +97,8 @@ Tesseract language packs in `Dockerfile.extract`).
 |---|---|
 | `sources/<topic>/` | Sources **per topic** in their own subfolder (e.g. `sources/Biology/`, `sources/Math/`, `sources/SoftwareEngineering/`). PDFs/texts/Markdown. Optionally a **`context.md`** (tolerate other spellings/languages, e.g. `Kontext.md` — when in doubt `ls sources/<topic>/`) with context about the topic (what it is, why it's needed, focus, exam relevance) — read it **before** building cards. |
 | `decks/<topic>/` | Mirrors the topics: generated `.cards.json` **and** `.apkg` live in the same topic folder (e.g. `decks/Biology/`). |
-| `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). Read and cite these extracts efficiently instead of loading the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF with an available PDF viewer or render the page to an image and inspect it **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.png`** (manifest `<name>.figures.json`: page, bbox 0..1, kind). Gitignored (derived, reproducible). |
-| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback; **text/Markdown sources** are mirrored 1:1 into `extracted/`, no page markers), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json; **`--against decks/_anki-mirror/`** additionally dedupes against the live collection), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs and media preserved** — for changing already-learned decks without losing progress), `deck_diff.py` (**diff two deck versions by GUID**: added/removed/changed + cloze-safety warnings; run before every rework push, `--strict` as a gate), `anki_connect.py` (**optional**: drive a running Anki via the AnkiConnect add-on, code 2055492159 — `ping`/`decks`/`push <apkg>` (`--dry-run` previews)/`export <deck> <apkg>`/`sync`/`mirror`/`update-note`/`restore [--list]`; local HTTP to 127.0.0.1:8765 by default; HTTP uses stdlib, modern backup decoding needs Python `zstandard` or the `zstd` CLI; no Docker or credentials; clear error message if Anki/add-on is unreachable). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one; routes `--lang`/`-j` to extract, `--zoom`/`--min-area`/… to figextract), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg; `--push [--prune] [--sync]` imports the result into Anki via AnkiConnect). **Setup:** `setup.sh` (fresh-clone health check: Docker/Python, commit guard, builder image, example-deck smoke test). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
+| `extracted/<topic>/` | **Machine-readable Markdown extracts** of the sources (via `tools/extract.sh`), mirrored by topic (e.g. `extracted/Biology/cellular_respiration.md`). Read and cite these extracts efficiently instead of loading the PDF. Per file there is a **`<name>.figures.md`** (figure index: "Fig. N — p. P: title"); page markers show the figure count (`<!-- p. 12 · 2 fig. -->`). **The images themselves are not in the `.md`** — either view the real page of the PDF with an available PDF viewer or render the page to an image and inspect it **or** use the crops cut by `figextract.sh` under **`figures/<name>_p<page>_<i>.jpg`** (embedded photos/scans) or **`.png`** (drawn figures; `--format png|jpg` forces one format) (manifest `<name>.figures.json`: page, bbox 0..1, kind, image path). Gitignored (derived, reproducible). |
+| `tools/` | `build_deck.py` (JSON→apkg), `build.sh` (wrapper), `extract.py`/`extract.sh` (PDF→Markdown, OCR fallback; **text/Markdown sources** are mirrored 1:1 into `extracted/`, no page markers), `figindex.py` (figure index, stdlib), `figextract.py`/`figextract.sh` (crop figures from PDFs → JPEG/PNG crops), `preview.py`/`preview.sh` (cards→PNG), `detect_labels.py`/`detect.sh` (OCR→exact boxes), `lint_cards.py` (structure check), `grounding_check.py` (check cards against the source text), `coverage.py` (duplicates + coverage across all cards.json; **`--against decks/_anki-mirror/`** additionally dedupes against the live collection), `validate.py`/`validate.sh` (real Anki engine), `apkg_to_cards.py` (`.apkg` → `cards.json` back, **GUIDs and media preserved** — for changing already-learned decks without losing progress), `deck_diff.py` (**diff two deck versions by GUID**: added/removed/changed + cloze-safety warnings; run before every rework push, `--strict` as a gate), `anki_connect.py` (**optional**: drive a running Anki via the AnkiConnect add-on, code 2055492159 — `ping`/`decks`/`push <apkg>` (`--dry-run` previews)/`export <deck> <apkg>`/`sync`/`mirror`/`update-note`/`restore [--list]`; local HTTP to 127.0.0.1:8765 by default; HTTP uses stdlib, modern backup decoding needs Python `zstandard` or the `zstd` CLI; no Docker or credentials; clear error message if Anki/add-on is unreachable). **Orchestrators:** `prep.sh` (extract+figindex+figextract in one; routes `--lang`/`-j` to extract, `--zoom`/`--min-area`/… to figextract), `finish.sh` (lint+grounding[+coverage]+build+validate; also several cards.json → one .apkg; `--push [--prune] [--sync]` imports the result into Anki via AnkiConnect). **Setup:** `setup.sh` (fresh-clone health check: Docker/Python, commit guard, builder image, example-deck smoke test). **Tests:** `test.sh` (`tests/`, stdlib `unittest` of the logic tools — no Docker, no pip; `./tools/test.sh`). |
 | `.githooks/` | **Commit guard** (`pre-commit`): the repo is **public** — the hook blocks commits that would add personal material (sources/, extracted/, decks/ content, PDFs/.apkg), even with `git add -f`. Active via `git config core.hooksPath .githooks` (once per clone). The shared allowlist lives in `tools/check_repo_files.py` and is also checked by CI. If it blocks wrongly: inspect the content and extend that allowlist, don't blindly `--no-verify`. |
 | `skills/card-authoring/` | Shared card methodology (`SKILL.md`) and evidence (`research.md`), usable with any assistant. |
 | `workflows/` | Provider-neutral task instructions: `forge.md` for new cards and `rework.md` for changes to existing decks. |
@@ -124,20 +124,20 @@ Anki shows it as the top-level deck: `"<Topic>::<Title>"` (e.g.
    ./tools/prep.sh sources/<topic>/<name>.pdf        # or: sources/<topic>/ (whole folder)
    ```
    `prep.sh` bundles `extract.sh` (→ `.md` + `figindex.py` → `.figures.md`) and
-   `figextract.sh` (→ `figures/<name>_p*.png` + `<name>.figures.json`). Result:
+   `figextract.sh` (→ `figures/<name>_p*.jpg|png` + `<name>.figures.json`). Result:
    `extracted/<topic>/<name>.md` (page markers `<!-- p. N -->`; scanned pages
    detected via OCR and marked `(OCR)`). **Then read from the `.md`** — that is
    more efficient (greppable, cheaper, precisely citable) than loading the PDF as
    images. For `(OCR)` pages, double-check quotes against the original PDF. Pages
    are processed **in parallel** (all CPU cores); individual steps remain available
    via `./tools/extract.sh` (`-j N` to limit, `--lang` for other OCR languages) and
-   `./tools/figextract.sh` (tune `--min-area`/`--zoom`).
+   `./tools/figextract.sh` (tune `--min-area`/`--zoom`/`--format`).
 3. **Read** the `.md` with any text/file reader; look up sections/pages as needed.
    **Image check:** the `.md` contains **no images**, only captions. Check
    `<name>.figures.md` (or the `· N fig.` markers) for where figures live. If a
    concept is **spatial/visual** (diagram, graph, schematic) or the image carries
    information the text does not → **cheaply view the cropped figure** under
-   `extracted/<topic>/figures/<name>_p<page>_*.png` with an available image viewer (instead of
+   `extracted/<topic>/figures/<name>_p<page>_*` with an available image viewer (instead of
    loading the whole PDF page) and decide whether an `occlusion`/image card is
    needed. If a crop is missing (vector not detected) → view the original PDF page
    (directly or rendered to an image). That way no image gets overlooked.
@@ -370,7 +370,7 @@ For occlusion cards, additionally run `preview.sh` and look at the PNGs (steps 2
 - **All text fields are rendered as HTML** (no escaping): to structure, use
   `<br>` (line break — a bare `\n` does NOT work), `<ul>/<ol>`, `<table>`.
   Structure improves readability, not the fact count per card (atomicity stays).
-- **Images in answers/explanations:** `<img src="extracted/<topic>/figures/….png">`
+- **Images in answers/explanations:** `<img src="extracted/<topic>/figures/….jpg">`
   in any text field (path **relative to the project root**, like occlusion images).
   The build embeds the file into the `.apkg` and rewrites the src to the file name;
   `preview.sh` inlines it as a data URI; `lint_cards.py` errors if the path is
@@ -434,7 +434,7 @@ produces **one card**.
 - `image`: path **relative to the project root** (e.g. `sources/heart.png`). The
   image is embedded into the `.apkg` automatically. **Slide figures** have no
   standalone file → run `figextract.sh` first and point to the crop
-  (`extracted/<topic>/figures/<name>_p<page>_<i>.png`).
+  (`extracted/<topic>/figures/<name>_p<page>_<i>.jpg`, `.png` for drawn figures).
 - `mode`: `"hide-one"` (only the queried region is masked, rest visible) or
   `"hide-all"` (all masked, on reveal only the queried one is shown).
 - `regions`: list of regions. **Coordinates as fractions 0..1** (relative to the
@@ -446,7 +446,7 @@ produces **one card**.
 **Preferred: OCR (pixel-exact).** For images with text labels, first have the
 exact boxes detected (for slides, run it on the `figextract` crop):
 ```bash
-./tools/detect.sh extracted/<topic>/figures/<name>_p<page>_<i>.png   # or sources/image.png
+./tools/detect.sh extracted/<topic>/figures/<name>_p<page>_<i>.jpg   # or the .png crop, or sources/image.png
 #                                                  optional: --lang eng+deu --min-conf 45
 ```
 → produces `sources/image.labels.json` (detected labels with fractional
