@@ -30,7 +30,7 @@ _TAG_RE = re.compile(r"<[^>]+>")
 # \b so that e.g. "Kap. 8" (chapter) is not misread as a page citation.
 _PAGE_CITE_RE = re.compile(r"\b(?:p|S)\.\s*(\d+)")
 _MARKER_RE = re.compile(r"<!--\s*(?:p|S)\.\s*(\d+)[^>]*-->")
-_WORD_RE = re.compile(r"[0-9A-Za-zÀ-ÿ]+")
+_WORD_RE = re.compile(r"[0-9A-Za-zÀ-ÿŒœ]+")
 
 
 def _norm(token):
@@ -38,8 +38,10 @@ def _norm(token):
     return (t.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss"))
 
 
-# Function words are everywhere and say nothing about coverage. German + English;
-# other languages simply have no stopword filtering (slightly noisier, still works).
+# Function words are everywhere and say nothing about coverage. German, English
+# and French; other languages simply have no stopword filtering (slightly noisier,
+# still works). French omits words that are also English content words
+# (comment, encore, pendant, plus, font, pour).
 _STOP = set(_norm(w) for w in """
 und oder aber denn weil dass wenn als wie also dann noch nur auch sehr mehr
 der die das den dem des ein eine einen einem einer eines kein keine nach durch
@@ -49,6 +51,12 @@ ich du ihr man sich nicht so dies diese dieser dieses jede jeder jedes sowie bzw
 ueber über sowohl sondern jedoch dabei somit etwa mehrere viele ihre seine deren
 the and for with that this from are was were can will not all any one two each
 which what when where who whom whose why how than then them they their there
+dans avec sans sous entre chez mais donc ainsi alors aussi très moins comme
+quand lorsque parce puisque selon dont cette ceci cela celui celle ceux celles
+leur leurs nous vous elle elles sont était étaient être avoir avait sera seront
+peut peuvent fait tout tous toute toutes autre autres même chaque plusieurs afin
+quel quelle quels quelles lequel laquelle lesquels lesquelles pourquoi depuis
+avant après sinon soit
 """.split())
 
 
