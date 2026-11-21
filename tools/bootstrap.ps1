@@ -29,7 +29,7 @@ function Show-BootstrapHelp {
     Write-Output 'Anki Card Forge - Windows 11 x64'
     Write-Output 'Usage: .\forge.cmd [--backend native] COMMAND [arguments]'
     Write-Output 'The Docker backend uses the documented Linux/WSL entry point.'
-    Write-Output 'Commands: setup, doctor, prep, extract, figindex, figextract, detect,'
+    Write-Output 'Commands: workspace, setup, doctor, prep, extract, figindex, figextract, detect,'
     Write-Output '          preview, build, validate, finish, lint, grounding, coverage,'
     Write-Output '          diff, decode, anki, test'
     Write-Output 'First use: .\forge.cmd setup'
@@ -176,6 +176,16 @@ try {
     if ($requestedBackend -ne 'native') {
         throw 'forge.cmd supports the native Windows backend. Use the documented Linux/WSL entry point for Docker.'
     }
+    if ($commandName -eq 'workspace') {
+        if ($isHelp) {
+            Write-Output 'Usage: .\forge.cmd workspace [absolute-fallback-parent]'
+            exit 0
+        }
+        if ($commandArguments.Count -gt 2) { throw 'workspace takes at most one absolute fallback parent path.' }
+        . (Join-Path $PSScriptRoot 'workspace.ps1')
+        Select-ForgeWorkspace $projectRoot $commandArguments[1]
+        exit 0
+    }
     if (-not (Test-Path -LiteralPath $venvPython)) {
         if ($isHelp) { Show-BootstrapHelp; exit 0 }
         if ($commandName -ne 'setup') {
@@ -192,10 +202,18 @@ try {
             throw 'Native setup currently supports Windows 11 x64. Use the documented Linux/Docker workflow elsewhere.'
         }
         New-Item -ItemType Directory -Path $managedRoot -Force | Out-Null
+        $lockPath = Join-Path $managedRoot 'setup.lock'
         try {
-            $setupLock = [IO.File]::Open((Join-Path $managedRoot 'setup.lock'), [IO.FileMode]::OpenOrCreate,
+            $setupLock = [IO.File]::Open($lockPath, [IO.FileMode]::OpenOrCreate,
                 [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
-        } catch { throw 'Another setup is using this project. Wait for it to finish, then try again.' }
+        } catch {
+            $cause = $_.Exception.GetBaseException()
+            # HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION)
+            if ($cause.HResult -eq -2147024864) {
+                throw "Setup lock is in use: $lockPath. Wait for the other process to release it."
+            }
+            throw "Cannot open setup lock at ${lockPath}: $($cause.Message)"
+        }
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $bootstrapStamp = Join-Path $managedRoot 'bootstrap-state.json'
         $bootstrapIdentity = $manifest.assets.uv.sha256 + ':' + $manifest.assets.python.sha256 + ':' + $manifest.assets.crt.sha256
