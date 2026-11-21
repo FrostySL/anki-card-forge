@@ -26,7 +26,8 @@ class WindowsBootstrap(unittest.TestCase):
         # PowerShell and the real setup state use the resolved long path.
         self.root = Path(self.temporary.name).resolve() / "Anki Test ä"
         (self.root / "tools").mkdir(parents=True)
-        for name in ("forge.cmd", "forge.ps1", "tools/bootstrap.ps1", "tools/native_process.ps1", "tools/runtime-manifest.json"):
+        for name in ("forge.cmd", "forge.ps1", "tools/bootstrap.ps1", "tools/native_process.ps1",
+                     "tools/runtime-manifest.json", "tools/workspace.ps1"):
             shutil.copyfile(ROOT / name, self.root / name)
         self.env = {key: value for key, value in os.environ.items() if not re.match(
             r"^(UV_|PYTHON|PLAYWRIGHT_|ACF_|PIP_|VIRTUAL_ENV$|TESSDATA_PREFIX$|TESSERACT_|NODE_|npm_)",
@@ -151,6 +152,80 @@ class WindowsBootstrap(unittest.TestCase):
         self.assertFalse((self.root / ".forge/python").exists())
         self.assertFalse((self.root / ".forge/uv").exists())
         self.assertFalse((self.root / ".venv").exists())
+
+    def test_setup_lock_path_error_reports_the_path(self):
+        lock = self.root / ".forge/setup.lock"
+        lock.mkdir(parents=True)
+        result = self.launch("setup", "--offline")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(f"Cannot open setup lock at {lock}:", result.stdout)
+
+    def test_workspace_uses_writable_source_without_installing(self):
+        fallback = self.root.parent / "Unused fallback"
+        result = self.launch("workspace", str(fallback))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(Path(result.stdout.strip()), self.root)
+        self.assertEqual(list((self.root / ".forge/cache/downloads").iterdir()), [])
+        self.assertFalse((self.root / ".forge/setup.lock").exists())
+        self.assertFalse((self.root / ".venv").exists())
+        self.assertFalse(fallback.exists())
+
+    def block_source_cache(self):
+        obstruction = self.root / ".forge/cache/downloads"
+        obstruction.parent.mkdir(parents=True)
+        obstruction.touch()
+        return obstruction
+
+    def test_workspace_prepares_source_only_copy_when_cache_is_blocked(self):
+        obstruction = self.block_source_cache()
+        for path in ("README.md", "AGENTS.md", "LICENSE", "pyproject.toml", "uv.lock",
+                     "decks/example.cards.json", ".githooks/pre-commit",
+                     "tests/integration/check_pipeline.py", "skills/card-authoring/SKILL.md",
+                     "workflows/forge.md"):
+            dst = self.root / path
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / path, dst)
+        (self.root / "decks/private.cards.json").touch()
+        (self.root / "sources").mkdir()
+        (self.root / "sources/private.txt").touch()
+
+        fallback = self.root.parent / "Allowed fallback"
+        result = self.launch("workspace", str(fallback))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Windows PowerShell could not write at {obstruction}", result.stderr)
+        selected = Path(result.stdout.strip())
+        self.assertEqual(selected.parent, fallback)
+        self.assertTrue((selected / "tests/integration/check_pipeline.py").is_file())
+        self.assertEqual(list((selected / "sources").iterdir()), [])
+        self.assertEqual([p.name for p in (selected / "decks").iterdir()], ["example.cards.json"])
+        self.assertFalse((selected / ".venv").exists())
+
+        self.root = selected
+        self.test_cold_offline_setup_stops_at_cache_miss()
+
+    def test_workspace_reports_both_paths_when_fallback_is_blocked(self):
+        obstruction = self.block_source_cache()
+        fallback = self.root.parent / "Blocked fallback"
+        fallback.touch()
+        result = self.launch("workspace", str(fallback))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"Windows PowerShell could not write at {obstruction}", result.stderr)
+        self.assertIn(f"Cannot prepare Forge at {fallback}", result.stdout)
+        self.assertIn("allowed, writable local fallback parent", result.stdout)
+
+    def test_setup_lock_held_by_another_process(self):
+        import _winapi
+
+        lock = self.root / ".forge/setup.lock"
+        lock.parent.mkdir()
+        # GENERIC_WRITE, no sharing, CREATE_NEW
+        handle = _winapi.CreateFile(str(lock), 0x40000000, 0, 0, 1, 0, 0)
+        try:
+            result = self.launch("setup", "--offline")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn(f"Setup lock is in use: {lock}", result.stdout)
+        finally:
+            _winapi.CloseHandle(handle)
 
     def acceptance_fixture(self):
         driver = self.root / "tests/integration/windows_acceptance.ps1"

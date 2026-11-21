@@ -1,5 +1,41 @@
 # anki-card-forge
 
+## Start here if an assistant receives a repository link and a PDF
+
+If you already have a project open in a coding assistant, start there. Give
+the assistant the repository link, the PDF or its accessible path, and the
+cards you want. The assistant needs local file and terminal access on a
+[supported platform](#requirements).
+
+Use a dedicated, writable folder for Forge and reuse that copy for later
+PDFs. If Forge is missing, the assistant can create the local copy from a
+source ZIP or with Git. Read [AGENTS.md](AGENTS.md) and the
+[new-card workflow](workflows/forge.md) from that copy.
+On Windows 11 x64, start with `.\forge.cmd workspace` from that copy.
+The launcher tests writing to the setup cache using Windows PowerShell. If
+the source is blocked, for example under `Documents\Codex`, it prepares
+a fresh code copy under `%USERPROFILE%\AppData\Local\AnkiCardForge`.
+If your environment requires permission for that path, get approval for the
+workspace command there or pass a permitted local parent explicitly with
+`.\forge.cmd workspace "C:\path\to\allowed-folder"`.
+
+Use the **printed absolute path** as the working directory for all remaining
+Forge commands. Run `.\forge.cmd doctor` there, then `.\forge.cmd setup`
+if needed. Request any required network approval for that setup command in
+the selected directory. If an existing setup holds the lock, wait for it to
+finish.
+
+Place the PDF under `sources/<topic>/`, run
+`.\forge.cmd prep "<path-to-pdf>"`, and author the requested `.cards.json`
+from the source.
+
+Run `.\forge.cmd finish <path-to-cards.json>` to build the package with Forge
+and import and render it in a temporary collection with the Anki engine.
+Once the rendered card count matches the request, copy the JSON and validated
+`.apkg` to the user-accessible output folder and link both files. If setup or
+validation is still blocked, report the failing
+command and its specific error. Carry out these steps for the user.
+
 [![CI](https://github.com/FrostySL/anki-card-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/FrostySL/anki-card-forge/actions/workflows/ci.yml)
 
 Turn **lecture scripts, books, slides and notes** into high-quality **Anki
