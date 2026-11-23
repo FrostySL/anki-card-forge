@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Crops figures out of source PDFs as PNGs — inside the extract container (PyMuPDF).
+# Crops figures out of source PDFs as JPEG/PNG images — inside the extract container (PyMuPDF).
 #
 #   ./tools/figextract.sh sources/SWT/04_UML.pdf
 #   ./tools/figextract.sh sources/SWT/            # whole topic folder
-#   -> extracted/SWT/figures/<name>_p<page>_<i>.png + extracted/SWT/<name>.figures.json
+#   -> extracted/SWT/figures/<name>_p<page>_<i>.jpg|.png + extracted/SWT/<name>.figures.json
 #
 # Uses the same image as tools/extract.sh (built automatically on first use).
 set -euo pipefail
