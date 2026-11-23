@@ -141,6 +141,42 @@ class WindowsBootstrap(unittest.TestCase):
         self.assertIn("Commands:", result.stdout)
         self.assert_clean()
 
+    def test_review_receives_ctrl_c_in_the_callers_console(self):
+        self.argv_fixture()
+        # Send a real console interrupt from the managed process. Each launcher
+        # gets a private hidden console, isolated from this runner and the user.
+        (self.root / "tools/forge.py").write_text("""
+import ctypes
+from pathlib import Path
+import time
+console = ctypes.windll.kernel32
+pids = (ctypes.c_ulong * 16)()
+count = console.GetConsoleProcessList(pids, len(pids))
+assert int(Path('console-owner').read_text()) in pids[:count]
+try:
+    assert console.GenerateConsoleCtrlEvent(0, 0)
+    for _ in range(40):
+        time.sleep(0.05)
+except KeyboardInterrupt:
+    Path('interrupted').touch()
+    raise SystemExit(130)
+""", encoding="utf-8")
+        startup = subprocess.STARTUPINFO()
+        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startup.wShowWindow = subprocess.SW_HIDE
+        ps_args = [str(POWERSHELL), "-NoProfile", "-ExecutionPolicy", "Bypass",
+                   "-File", str(self.root / "forge.ps1"), "review", "draft.json", "--wait"]
+        for command in ([str(CMD), "/d", "/c", "forge.cmd", "review", "draft.json", "--wait"], ps_args):
+            with self.subTest(launcher=command[0]):
+                with subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_CONSOLE,
+                                      startupinfo=startup, cwd=self.root, env=self.env,
+                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
+                    (self.root / "console-owner").write_text(str(proc.pid))
+                    proc.communicate(b"N\r\n", timeout=20)
+                marker = self.root / "interrupted"
+                self.assertTrue(marker.exists(), "the managed review did not receive Ctrl+C")
+                marker.unlink()
+
     def test_cold_offline_setup_stops_at_cache_miss(self):
         result = self.launch("setup", "--offline")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)

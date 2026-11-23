@@ -63,6 +63,11 @@ class TestRepositoryFileGuard(unittest.TestCase):
         self.assert_blocked(result, "sources/renamed notes.txt")
         self.assertIn('"decks/copied.cards.json"', result.stderr)
 
+    def test_forced_review_artifacts_are_blocked(self):
+        path = "decks/_reviews/local-revision/submitted.json"
+        self.write(path)
+        self.assert_blocked(self.guard("--staged"), path)
+
     def test_staged_modification_deletion_and_move_out_of_private_path(self):
         # A previously tracked file can still be edited or removed. The complete
         # snapshot check below deliberately applies stricter rules in CI.

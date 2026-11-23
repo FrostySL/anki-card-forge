@@ -30,7 +30,7 @@ function Show-BootstrapHelp {
     Write-Output 'Usage: .\forge.cmd [--backend native] COMMAND [arguments]'
     Write-Output 'The Docker backend uses the documented Linux/WSL entry point.'
     Write-Output 'Commands: workspace, setup, doctor, prep, extract, figindex, figextract, detect,'
-    Write-Output '          preview, build, validate, finish, lint, grounding, coverage,'
+    Write-Output '          preview, review, build, validate, finish, lint, grounding, coverage,'
     Write-Output '          diff, decode, anki, test'
     Write-Output 'First use: .\forge.cmd setup'
     Write-Output 'Setup downloads a private Python, packages, OCR and browser into this project.'
@@ -288,7 +288,7 @@ try {
             throw 'The managed setup is outdated or the project was moved. Run .\forge.cmd setup.'
         }
     }
-    $result = Invoke-ManagedProcess -Executable $venvPython -Arguments (@((Join-Path $PSScriptRoot 'forge.py')) + $ForgeArguments)
+    $result = Invoke-ManagedProcess -Executable $venvPython -Arguments (@((Join-Path $PSScriptRoot 'forge.py')) + $ForgeArguments) -ShareConsole:($commandName -eq 'review')
 } catch {
     Write-Host ("Setup/launcher error: " + $_.Exception.Message)
     $result = 1

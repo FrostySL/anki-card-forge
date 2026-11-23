@@ -24,6 +24,7 @@ them with the corresponding `.\forge.cmd` subcommand and keep their arguments:
 | `./tools/prep.sh`, `./tools/finish.sh` | `.\forge.cmd prep`, `.\forge.cmd finish` |
 | `./tools/extract.sh`, `figextract.sh`, `detect.sh` | `.\forge.cmd extract`, `figextract`, `detect` |
 | `./tools/build.sh`, `preview.sh`, `validate.sh` | `.\forge.cmd build`, `preview`, `validate` |
+| `python3 tools/forge.py review` | `.\forge.cmd review` |
 | `python3 tools/lint_cards.py`, `grounding_check.py`, `coverage.py` | `.\forge.cmd lint`, `grounding`, `coverage` |
 | `python3 tools/apkg_to_cards.py`, `deck_diff.py`, `figindex.py` | `.\forge.cmd decode`, `diff`, `figindex` |
 | `python3 tools/anki_connect.py …`, `./tools/test.sh` | `.\forge.cmd anki …`, `.\forge.cmd test` |
@@ -276,6 +277,30 @@ rebuild from it. Instead:
    (no re-import needed, content/progress untouched).
 
 ## Feedback loop: check the cards yourself before handing them over
+
+When the user requests a browser review, launch it in the language they are
+using in the conversation. An explicit request for a different interface
+language takes precedence. On Windows, run
+`forge.cmd review <cards.json> --ui-language TAG` (on Linux/WSL2,
+`python3 tools/forge.py review` with the same arguments). For example, pass
+`--ui-language fr` for a French conversation, even when the cards are German.
+Use a language tag such as `ja` for an unsupported language and `en` if the
+conversation language is unclear. The interface falls back to English. Share
+the printed local URL, including its language parameter. The selector in the
+header lets the user change the interface language at any time.
+
+To wait as part of the current task, run a
+second `review <cards.json> --wait --revision HASH --timeout SECONDS` using the
+full revision printed by the server. A successful wait returns an absolute
+submission path. Summarize the requested changes by card variant. New
+submissions include status counts and mark each variant as `accepted`,
+`change_requested` or `open`. Earlier submissions use the saved
+`feedback.ok` flag, with null feedback for open cards. Compare the recorded
+revision with `review <cards.json> --show-revision` from the submitted
+`review_project_root`. For older submissions, use the Forge workspace that
+contains the recorded source. Edit the cards only
+when asked. Saved drafts and submitted reviews stay local under `decks/_reviews/`.
+See the [browser review instructions](README.md#optional-browser-review).
 
 Before reporting an `.apkg` as "done" — especially with **image occlusion**,
 where the boxes are placed by eye — check the result:

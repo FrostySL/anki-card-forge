@@ -171,6 +171,80 @@ For the example path, the results are:
 - `decks/Biology/respiration.cards.json` — the editable card content.
 - `decks/Biology/respiration.apkg` — the finished package to import into Anki.
 
+### Optional browser review
+
+To give feedback before importing, start the local review on Windows.
+
+```powershell
+.\forge.cmd review decks/Biology/respiration.cards.json
+```
+
+On Linux/WSL2 use `python3 tools/forge.py review` with the same arguments.
+Open the printed `127.0.0.1` URL in a browser on your computer. Each card
+shows both sides and lets you switch between their light and dark Anki
+previews. Select a side to enlarge it. The review renders offline, so use
+local or embedded images. Each cloze number, card direction and occlusion
+region gets its own feedback. Cloze rows include the surrounding text.
+
+When an assistant opens a review for you, it passes the language of your
+conversation. For example, in a French chat it runs
+`forge.cmd review decks/Biology/respiration.cards.json --ui-language fr`.
+You can ask for a different interface language or use the selector in the
+header. The interface supports English, German, Spanish, French, Brazilian
+Portuguese and Simplified Chinese. A chat in any other language opens an
+English review. Starting the command manually without a language uses your
+saved choice for that local address, or English on first use. The interface
+language also applies to the copied handoff prompt. Cards and comments keep
+their original wording.
+
+To review the whole deck, choose **Review cards** in the overview.
+A fresh pass starts at card 1, even with a list filter active. On each card,
+choose **Save and continue** to accept it or enter a change request first.
+The button saves and advances to the next card. On the last card,
+**Save and return to overview** returns you to the summary. If you open the
+overview midway, its resume button shows which card you can continue with.
+The progress bar counts both accepted cards and change requests as reviewed.
+Unconfirmed cards stay **Open**.
+
+To edit individual cards, select **Looks good**, **Change requested** or **Open**
+in the overview and open a row. **Save and return to overview** brings you
+back to your filtered list. You can also use **Save and continue** to
+continue from this card in deck order. Clearing a change request and
+saving marks that card as accepted. Outside the comment field, the arrow
+keys browse cards, **P** accepts a card with an empty comment, and **C**
+focuses the comment. Open **Keyboard shortcuts** for the controls and the option
+to turn off letter shortcuts. You can close the tab and resume a saved
+draft later. Use Ctrl+C to stop the server and run the same command to reopen it.
+
+In the overview, **Submit review** saves a final JSON file under
+`decks/_reviews/`. You can submit a partial review with cards still open.
+In the submitted overview you can expand the file path or choose **Copy
+prompt** to copy a request containing the absolute path for an assistant
+that can read local files. Open any row to read its saved comment.
+Ask for edits when you want the draft changed.
+Reopening the same deck revision shows its submitted review. Changing the
+card JSON or a referenced local image starts a separate review for that path.
+To compare a submission with the current deck, run the same command with
+`--show-revision` in the workspace named by `review_project_root` in the
+submission. Compare the result with its recorded revision. This also works
+when `forge.cmd workspace` created a separate writable copy.
+
+An assistant can also wait for the submission in a second process.
+
+```powershell
+.\forge.cmd review decks/Biology/respiration.cards.json --wait --timeout 300
+```
+
+The waiter prints the absolute path when the matching review is submitted.
+It returns immediately if that revision already has a submission. By default
+it uses the deck revision at the start of the wait. To wait for the exact
+revision opened in the browser, pass the full hash printed by the server
+with `--revision HASH`. Ctrl+C cancels a wait. A timeout returns exit code
+3 (default 300 seconds). After either, you can submit in the browser and
+retrieve the file later using the same revision. On Windows, the outer
+PowerShell launcher can return exit code 0 after Ctrl+C. A caller should
+check that the waiter printed a path to an existing submission.
+
 ### 3. Import and study
 
 Double-click the `.apkg`, or open **File → Import** in desktop Anki and select
@@ -250,6 +324,7 @@ that contain spaces.
 | `./tools/finish.sh` | `.\forge.cmd finish` |
 | `./tools/build.sh` | `.\forge.cmd build` |
 | `./tools/preview.sh` | `.\forge.cmd preview` |
+| `python3 tools/forge.py review` | `.\forge.cmd review` |
 | `python3 tools/apkg_to_cards.py` | `.\forge.cmd decode` |
 | `python3 tools/deck_diff.py` | `.\forge.cmd diff` |
 | `python3 tools/anki_connect.py` | `.\forge.cmd anki` |

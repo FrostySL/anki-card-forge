@@ -106,7 +106,9 @@ Medien kein Internet; der gewählte KI-Assistent hat eigene Voraussetzungen.
 
 Neben `setup`, `doctor`, `prep` und `finish` stehen `extract`, `figextract`,
 `figindex`, `detect`, `lint`, `grounding`, `coverage`, `build`, `preview`,
-`validate`, `decode`, `diff`, `anki` und `test` zur Verfügung.
+`review`, `validate`, `decode`, `diff`, `anki` und `test` zur Verfügung. Mit
+`review` kannst du Karten im lokalen Browser prüfen und Rückmeldungen an
+deinen Assistenten übergeben. [Anleitung zur Kartenreview](../README.md#optional-browser-review)
 
 Die Steuerung startet die vorhandenen Python-Werkzeuge mit dem festgelegten
 Interpreter und expliziten Argumentlisten. `prep` verbindet Extraktion,

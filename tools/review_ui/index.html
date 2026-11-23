@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title data-i18n="pageTitle">Card review · Card Forge</title>
+  <link rel="stylesheet" href="review.css">
+  <script defer src="i18n.js"></script>
+  <script defer src="review.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <div class="brand"><span class="anvil" aria-hidden="true"></span>Card Forge</div>
+      <span class="app-name" data-i18n="appName">Card review</span>
+      <span id="revision" class="revision"></span>
+      <label for="ui-language" class="language-control">
+        <span class="language-label" data-i18n="language">Language</span>
+        <select id="ui-language">
+          <option value="en" lang="en" selected>English</option>
+          <option value="de" lang="de">Deutsch</option>
+          <option value="es" lang="es">Español</option>
+          <option value="fr" lang="fr">Français</option>
+          <option value="pt-BR" lang="pt-BR">Português (Brasil)</option>
+          <option value="zh-Hans" lang="zh-Hans">简体中文</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main class="shell">
+    <p id="loading" role="status" data-i18n="loading">Loading cards…</p>
+    <noscript><p data-i18n="requiresJs">The local card review requires JavaScript.</p></noscript>
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <button id="retry" type="button" data-i18n="retry" hidden>Retry</button>
+
+    <div id="review" hidden>
+      <section class="deck-heading" aria-labelledby="deck">
+        <div class="deck-name">
+          <p id="parent-deck" class="parent-deck" hidden></p>
+          <h1 id="deck"></h1>
+        </div>
+        <div class="progress">
+          <span id="progress-label"></span>
+          <div id="review-progress" role="progressbar" aria-label="Review progress" data-i18n-aria-label="progressName" aria-valuemin="0">
+            <svg viewBox="0 0 100 4" preserveAspectRatio="none" aria-hidden="true">
+              <rect id="progress-fill" width="0" height="4"></rect>
+            </svg>
+          </div>
+        </div>
+      </section>
+      <div id="revision-notice" class="notice" hidden>
+        <p id="revision-message"></p>
+        <details id="previous-file" class="file-details" hidden>
+          <summary data-i18n="previousPath">Show previous file path</summary>
+          <code id="previous-path"></code>
+        </details>
+      </div>
+
+      <article id="card-view" aria-labelledby="card-heading">
+        <header class="card-heading">
+          <div>
+            <h2 id="card-heading" tabindex="-1"></h2>
+            <div class="card-meta"><span id="variant" class="variant"></span><span id="card-status" class="status"></span></div>
+          </div>
+          <div id="preview-theme" role="group" aria-label="Card appearance" data-i18n-aria-label="previewTheme" hidden>
+            <button type="button" data-theme="light" aria-pressed="false" data-i18n="light">Light</button>
+            <button type="button" data-theme="dark" aria-pressed="true" data-i18n="dark">Dark</button>
+          </div>
+        </header>
+        <div class="previews" id="previews" data-theme="dark" aria-busy="true">
+          <figure>
+            <figcaption data-i18n="front">Front</figcaption>
+            <button id="zoom-front" type="button" class="preview-image" aria-label="Enlarge front" title="Enlarge front"
+                    data-i18n-aria-label="zoomFront" data-i18n-title="zoomFront" disabled>
+              <span class="magnifier" aria-hidden="true"></span>
+              <img id="front" alt="">
+            </button>
+          </figure>
+          <figure>
+            <figcaption data-i18n="back">Back</figcaption>
+            <button id="zoom-back" type="button" class="preview-image" aria-label="Enlarge back" title="Enlarge back"
+                    data-i18n-aria-label="zoomBack" data-i18n-title="zoomBack" disabled>
+              <span class="magnifier" aria-hidden="true"></span>
+              <img id="back" alt="">
+            </button>
+          </figure>
+        </div>
+        <div class="preview-status" id="preview-status" hidden>
+          <span id="preview-message" role="status"></span>
+          <button id="preview-retry" type="button" data-i18n="retry" hidden>Retry</button>
+        </div>
+
+        <form id="feedback-form" class="feedback">
+          <div id="comment-editor">
+            <label for="comment" class="field-label" data-i18n="comment">Comment</label>
+            <p id="comment-hint" class="field-note" data-i18n="commentHint">Leave this blank if the card looks good, or describe the change you want.</p>
+            <textarea id="comment" aria-describedby="comment-hint" rows="2"></textarea>
+          </div>
+          <div id="saved-feedback" hidden>
+            <p class="field-label" data-i18n="submittedComment">Submitted comment</p>
+            <p id="saved-comment"></p>
+          </div>
+          <div class="actions">
+            <button id="prev" type="button" data-i18n="previous">Previous</button>
+            <span id="save-status" role="status"></span>
+            <button id="discard" type="button" data-i18n="useSaved" hidden>Use saved feedback</button>
+            <button id="overview-link" class="secondary" type="button" data-i18n="overview">Overview</button>
+            <button id="next" class="primary" type="submit" data-i18n="saveNext">Save and continue</button>
+          </div>
+        </form>
+        <details id="shortcut-help" class="shortcut-help">
+          <summary data-i18n="shortcuts">Keyboard shortcuts</summary>
+          <p><kbd>←</kbd> <span data-i18n="previous">Previous</span> · <kbd>→</kbd> <span data-i18n="next">Next</span> · <kbd>Esc</kbd> <span data-i18n="overview">Overview</span></p>
+          <div id="editing-shortcuts">
+            <p><kbd>P</kbd> <span data-i18n="shortcutAccept">Approve and continue</span> · <kbd>Ä</kbd> <span data-i18n="shortcutOr">or</span> <kbd>C</kbd> <span data-i18n="shortcutComment">Edit comment</span></p>
+            <label><input id="letter-shortcuts" type="checkbox" checked> <span data-i18n="enableLetters">Enable letter shortcuts</span></label>
+          </div>
+        </details>
+      </article>
+
+      <section id="overview" aria-labelledby="overview-heading" hidden>
+        <header class="overview-heading">
+          <div class="overview-title">
+            <h2 id="overview-heading" tabindex="-1" data-i18n="overview">Overview</h2>
+            <span id="finish-heading" class="status" data-status="submitted" data-i18n="submitted" hidden>Submitted</span>
+          </div>
+          <div class="overview-actions">
+            <button id="sequence-start" class="primary" type="button" data-i18n="startSequence">Review cards</button>
+            <button id="submit" class="secondary" type="button" data-i18n="submit">Submit review</button>
+            <button id="copy" class="primary" type="button" data-i18n="copyPrompt" hidden>Copy prompt</button>
+          </div>
+        </header>
+        <p id="finish-detail"></p>
+        <details id="submission-file" class="file-details" hidden>
+          <summary data-i18n="showPath">Show file path</summary>
+          <code id="submission-path"></code>
+        </details>
+        <div id="manual-copy" hidden>
+          <label for="prompt" class="field-label" data-i18n="promptToCopy">Prompt to copy</label>
+          <textarea id="prompt" readonly rows="3"></textarea>
+        </div>
+        <p id="copy-status" role="status"></p>
+        <div class="filters" role="group" aria-label="Filter cards by status" data-i18n-aria-label="filterLabel">
+          <button type="button" data-filter="all" aria-pressed="true"><span class="filter-label" data-i18n="all">All</span> <span class="filter-count"></span></button>
+          <button type="button" data-filter="accepted" aria-pressed="false"><span class="filter-label" data-i18n="accepted">Looks good</span> <span class="filter-count"></span></button>
+          <button type="button" data-filter="change_requested" aria-pressed="false"><span class="filter-label" data-i18n="change_requested">Change requested</span> <span class="filter-count"></span></button>
+          <button type="button" data-filter="open" aria-pressed="false"><span class="filter-label" data-i18n="open">Open</span> <span class="filter-count"></span></button>
+        </div>
+        <ul id="card-list" class="card-list" aria-label="Cards" data-i18n-aria-label="cards"></ul>
+        <p id="empty-list" role="status" hidden></p>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="zoom" aria-labelledby="zoom-title">
+    <div class="zoom-heading">
+      <h2 id="zoom-title"></h2>
+      <div class="zoom-actions">
+        <button id="zoom-size" type="button" aria-pressed="false" data-i18n="originalSize">Original size</button>
+        <button id="zoom-close" type="button" data-i18n="close" autofocus>Close</button>
+      </div>
+    </div>
+    <div id="zoom-scroll" class="zoom-scroll" tabindex="0" role="region" aria-label="Enlarged card view" data-i18n-aria-label="zoomRegion">
+      <canvas id="zoom-image" role="img"></canvas>
+    </div>
+  </dialog>
+</body>
+</html>
