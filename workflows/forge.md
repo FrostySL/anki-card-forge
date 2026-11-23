@@ -10,8 +10,9 @@ On Windows, check `.\forge.cmd doctor`, then run `.\forge.cmd setup` if needed.
 Use `.\forge.cmd prep`, `finish`, `preview` and `anki` in place of the Linux
 commands below. All remaining arguments and quality gates are the same.
 
-1. If `sources/<topic>/context.md` exists (any spelling, e.g. `Kontext.md`),
-   read it FIRST — it steers selection and emphasis.
+1. Read `sources/context.md` FIRST if it exists (general preferences for all
+   topics), then `sources/<topic>/context.md` if it exists (any spelling, e.g.
+   `Kontext.md`) — it steers selection and emphasis and wins on conflicts.
 2. If the `extracted/<topic>/` mirror for the source is missing or stale, run
    `./tools/prep.sh <input>`. For scanned sources, pass `--lang` for the
    source's OCR language; the requested card language is a separate choice.
