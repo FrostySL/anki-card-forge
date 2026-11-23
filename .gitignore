@@ -6,6 +6,9 @@ decks/**/*.apkg
 decks/preview/
 decks/**/preview/
 
+# Local browser review drafts, preview images and submitted feedback
+decks/_reviews/
+
 # Working directory of tools/apkg_to_cards.py (cards.json + CSS pulled from an Anki
 # export, reproducible) — stays local, only an intermediate step for a rebuild.
 decks/**/*_rebuild/

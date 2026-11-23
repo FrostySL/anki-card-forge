@@ -14,6 +14,38 @@ python3 tests/integration/check_pipeline.py visual
 .\.venv\Scripts\python.exe tests\integration\check_pipeline.py visual --backend native
 ```
 
+The Windows browser review check runs the public CLI against 30 generated cards.
+It starts and resumes a deck sequence from a filtered overview. After editing
+a card, it tests returning to the list and continuing at the next card in the
+deck. It checks browser history, direct hash changes with unsaved comments,
+keyboard shortcuts, the progress indicator at zero, partial and full completion,
+status counts, scroll position and recovery from failed
+saves. At a 390-pixel viewport it compares both light and dark zoom images
+with the rendered card and checks that each one fits the dialog. After
+submission it checks the collapsed file path and read-only navigation.
+The main review runs with `--ui-language de-DE`. Fresh browser contexts with
+French or Chinese preferences start in English on a link without a language hint.
+A link with `?lang=fr-CA` starts in French even after a different manual choice.
+The test also covers unsupported hints, Simplified and Traditional Chinese, and
+restoring a manual choice on a bare link. It follows the manual choice through
+Back, reload and Forward, then reopens an explicit French link. It switches
+among all six languages with an unsaved comment and verifies that every
+localized clipboard prompt refers to the same submitted file.
+It also restarts the server and browser to verify saved feedback. On the first
+submission it reads the file returned by a running wait command. On a revised
+deck it submits without a waiter, extracts the path from the actual clipboard
+prompt and checks the contents of that file. It uses managed Chromium
+by default. To exercise an installed Chromium-based browser, add
+`--browser-executable "C:\path\to\browser.exe"`.
+
+```powershell
+.\.venv\Scripts\python.exe tests\integration\check_review.py
+```
+
+Screenshots, temporary browser data and the test deck use a fresh directory
+under `.forge/` for each run. The check prints its location.
+Submissions remain in the local review folder so the file paths can be checked.
+
 The default backend remains Docker. `build` uses `anki-cards` and
 `anki-cards-validate`; `visual` uses `anki-cards-extract` and
 `anki-cards-preview`. CI builds these images. Locally, build extraction and

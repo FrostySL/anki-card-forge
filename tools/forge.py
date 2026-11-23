@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = {
     "extract": "extract.py", "figextract": "figextract.py",
     "figindex": "figindex.py", "detect": "detect_labels.py",
-    "preview": "preview.py", "build": "build_deck.py",
+    "preview": "preview.py", "review": "review.py", "build": "build_deck.py",
     "validate": "validate.py", "lint": "lint_cards.py",
     "grounding": "grounding_check.py", "coverage": "coverage.py",
     "decode": "apkg_to_cards.py", "diff": "deck_diff.py",
@@ -35,6 +35,8 @@ OPTIONS = {
     "figindex": {},
     "detect": {k: "value" for k in ("--lang", "--min-conf", "--gap-factor")},
     "preview": {"--theme": "value", "--offline": "switch"},
+    "review": {"--port": "value", "--wait": "switch", "--timeout": "value",
+               "--revision": "value", "--show-revision": "switch", "--ui-language": "value"},
     "build": {}, "validate": {}, "lint": {},
     "grounding": {"--source": "path", "--min-cover": "value", "--err-cover": "value"},
     "coverage": {"--against": "path", "--threshold": "value", "--strict": "switch"},

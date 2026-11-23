@@ -20,11 +20,13 @@ function ConvertTo-NativeArgument([AllowEmptyString()][string] $Value) {
     return $quoted.ToString()
 }
 
-function Invoke-ManagedProcess([string] $Executable, [string[]] $Arguments) {
+function Invoke-ManagedProcess([string] $Executable, [string[]] $Arguments, [switch] $ShareConsole) {
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = $Executable
     $start.UseShellExecute = $false
-    $start.CreateNoWindow = $true
+    # A long-running review or waiter must receive the terminal's Ctrl+C.
+    $start.CreateNoWindow = -not $ShareConsole
+    $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $start.WorkingDirectory = (Get-Location).ProviderPath
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true

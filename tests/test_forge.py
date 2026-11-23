@@ -69,6 +69,18 @@ class TestForge(unittest.TestCase):
         self.dispatch("lint", [value])
         self.assertEqual(self.invocations()[0][1], ["decks/Biologie ü/one.cards.json"])
 
+    def test_review_server_and_waiter_resolve_the_same_source(self):
+        cards = self.cards()
+        self.app.cwd = cards.parent
+        relative = cards.relative_to(self.root).as_posix()
+        revision = "2b" * 32
+        self.dispatch("review", [cards.name, "--port=9234", "--ui-language", "fr-CA"])
+        self.dispatch("review", ["--wait", cards.name, "--timeout=10", "--revision", revision])
+        self.assertEqual(self.invocations(), [
+            ("review.py", [relative, "--port", "9234", "--ui-language", "fr-CA"]),
+            ("review.py", ["--wait", relative, "--timeout", "10", "--revision", revision]),
+        ])
+
     def test_output_and_source_option_paths_resolve_from_caller(self):
         cards = self.cards()
         self.app.cwd = cards.parent

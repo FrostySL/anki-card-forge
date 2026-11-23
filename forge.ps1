@@ -10,7 +10,11 @@ try {
     $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
     $forward = @('-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
                  (Join-Path $PSScriptRoot 'tools/bootstrap.ps1')) + @($ForgeArguments)
-    $result = Invoke-ManagedProcess -Executable $powershell -Arguments $forward
+    $tokens = @($ForgeArguments)
+    $commandOffset = if ($tokens[0] -eq '--backend') { 2 }
+                     elseif ($tokens[0] -like '--backend=*') { 1 }
+                     else { 0 }
+    $result = Invoke-ManagedProcess -Executable $powershell -Arguments $forward -ShareConsole:($tokens[$commandOffset] -eq 'review')
 } catch {
     [Console]::Error.WriteLine('Forge launcher error: ' + $_.Exception.Message)
     $result = 1

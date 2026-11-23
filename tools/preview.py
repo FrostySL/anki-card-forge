@@ -17,13 +17,13 @@ night mode (dark background, light text). That shows exactly what the user sees
 in both themes (night-mode readability, contrast). `--theme light` is faster.
 """
 import base64
+from dataclasses import dataclass
 import html
+from html.parser import HTMLParser
 import json
 import mimetypes
 import os
 from pathlib import Path
-import re
-import sys
 from urllib.parse import unquote, urlsplit
 
 import build_deck  # same tools/ directory -> sys.path[0]
@@ -53,6 +53,7 @@ _THEMES = {
     "light": "background:#fff;",
     "dark": "background:#2b2b2b;color:#d7d7d7;",
 }
+_REVIEW_THEME = "dark"
 
 
 def mathjax_directory():
@@ -113,10 +114,74 @@ def _data_uri(path):
     return f"data:{mime};base64,{b64}"
 
 
+class _LabelText(HTMLParser):
+    """Keep inline text together, separate blocks, and read image alternatives."""
+    breaks = {"br", "div", "hr", "li", "p", "td", "th", "tr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.hidden = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style"}:
+            self.hidden = True
+        elif tag in self.breaks:
+            self.parts.append(" ")
+        elif tag == "img":
+            self.parts.append(dict(attrs).get("alt") or "")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.parts.append(data)
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style"}:
+            self.hidden = False
+        elif tag in self.breaks:
+            self.parts.append(" ")
+
+
+def _plain_text(text):
+    parser = _LabelText()
+    parser.feed(text)
+    parser.close()
+    return " ".join("".join(parser.parts).split())
+
+
 def _short(text, n=60):
-    plain = re.sub(r"<[^>]+>", "", text or "").strip()
-    plain = re.sub(r"\s+", " ", plain)
+    plain = _plain_text(text)
     return (plain[:n] + "…") if len(plain) > n else plain
+
+
+def _cloze_context(text, active, limit=104):
+    """Keep the first active deletion in view even when it ends a long note."""
+    def mark(match):
+        answer = match.group(2).partition("::")[0]
+        if int(match.group(1)) == active:
+            return "\0[" + answer + "]\0"
+        return answer
+
+    # Delimit the active answer before reading HTML as plain text. The source
+    # can itself contain brackets or several occurrences of the same answer.
+    plain = _plain_text(build_deck._CLOZE_RE.sub(mark, text.replace("\0", "")))
+    before, marker, tail = plain.partition("\0")
+    if not marker:
+        return ""
+    target, _, after = tail.partition("\0")
+    after = after.replace("\0", "")
+    if len(target) > limit:
+        return target[:limit - 2].rstrip() + "…]"
+    budget = limit - len(target)
+    end = min(len(after), max(budget // 2, budget - len(before)))
+    start = max(0, len(before) - (budget - end))
+    if start:
+        boundary = before.find(" ", start)
+        before = "… " + (before[boundary + 1:] if boundary >= 0 else before[start:])
+    if end < len(after):
+        boundary = after.rfind(" ", 0, end + 1)
+        after = (after[:boundary] if boundary > 0 else after[:end]).rstrip() + " …"
+    return before + target + after
 
 
 def _inline_imgs(html_text):
@@ -125,33 +190,72 @@ def _inline_imgs(html_text):
     return rewrite_local_images(html_text, _data_uri)
 
 
+@dataclass
+class PreviewCard:
+    note: int
+    guid: str | None
+    ctype: str
+    variant: str
+    label: str
+    front: str
+    back: str
+
+    def index_label(self):
+        if self.ctype == "cloze":
+            return f"{self.variant}: {_short(self.front, 40)}"
+        if self.ctype == "reversed":
+            return ("← " if self.variant == "reverse" else "→ ") + self.label
+        return self.label
+
+    def review_entry(self, index, source_card):
+        entry = {"id": f"note-{self.note}:{self.variant}", "note": self.note,
+                 "variant": self.variant, "label": self.label,
+                 "front": _png_name(index, self.ctype, "front", _REVIEW_THEME),
+                 "back": _png_name(index, self.ctype, "back", _REVIEW_THEME),
+                 "front_light": _png_name(index, self.ctype, "front", "light"),
+                 "back_light": _png_name(index, self.ctype, "back", "light")}
+        if self.ctype == "cloze":
+            entry["context"] = _cloze_context(source_card["text"], int(self.variant[1:]))
+        if self.guid:
+            entry["guid"] = self.guid
+        return entry
+
+
+def _variants(card):
+    """Yield each card's source variant alongside its rendered sides."""
+    ctype = card.get("type", "basic")
+    if ctype == "basic" and card.get("reverse"):
+        forward, reverse = build_deck.render_reversed(card)
+        yield "reversed", "forward", _short(card["front"]), *forward
+        yield "reversed", "reverse", _short(card["back"]), *reverse
+    elif ctype == "basic":
+        yield ctype, "forward", _short(card["front"]), *build_deck.render_basic(card)
+    elif ctype == "typein":
+        yield ctype, "typein", _short(card["front"]), *build_deck.render_typein(card)
+    elif ctype == "cloze":
+        targets = {}
+        for number, contents in build_deck._CLOZE_RE.findall(card["text"]):
+            answer = contents.partition("::")[0]
+            targets.setdefault(int(number), []).append(answer)
+        for n, (front, back) in zip(sorted(targets), build_deck.render_cloze(card), strict=True):
+            label = _short(" · ".join(dict.fromkeys(targets[n]))) or _short(front)
+            yield ctype, f"c{n}", label, front, back
+    elif ctype == "occlusion":
+        sides = build_deck.render_occlusion(card, _data_uri(card["image"]))
+        for n, (region, (front, back)) in enumerate(zip(card["regions"], sides, strict=True), 1):
+            yield ctype, f"region-{n}", region.get("label", f"#{n}"), front, back
+    else:
+        raise ValueError(f"Unknown type '{ctype}' (basic, cloze, typein, occlusion)")
+
+
 def _collect(data):
-    """-> list of (ctype, label, front_html, back_html)."""
     validate_schema(data)
     items = []
-    for card in data["cards"]:
-        ctype = card.get("type", "basic")
-        if ctype == "basic" and card.get("reverse"):
-            fwd, rev = build_deck.render_reversed(card)
-            items.append(("reversed", "→ " + _short(card.get("front", "")), *fwd))
-            items.append(("reversed", "← " + _short(card.get("back", "")), *rev))
-        elif ctype == "basic":
-            front, back = build_deck.render_basic(card)
-            items.append((ctype, _short(card.get("front", "")), front, back))
-        elif ctype == "typein":
-            front, back = build_deck.render_typein(card)
-            items.append((ctype, _short(card.get("front", "")), front, back))
-        elif ctype == "cloze":
-            for n, (front, back) in enumerate(build_deck.render_cloze(card), 1):
-                items.append((ctype, f"c{n}: {_short(card.get('text',''), 40)}", front, back))
-        elif ctype == "occlusion":
-            uri = _data_uri(card["image"])
-            regions = card["regions"]
-            for n, (front, back) in enumerate(build_deck.render_occlusion(card, uri)):
-                items.append((ctype, regions[n].get("label", f"#{n + 1}"), front, back))
-        else:
-            raise ValueError(f"Unknown type '{ctype}' (basic, cloze, typein, occlusion)")
-    return [(t, label, _inline_imgs(front), _inline_imgs(back)) for t, label, front, back in items]
+    for note, card in enumerate(data["cards"], 1):
+        for ctype, variant, label, front, back in _variants(card):
+            items.append(PreviewCard(note, card.get("guid"), ctype, variant, label,
+                                     _inline_imgs(front), _inline_imgs(back)))
+    return items
 
 
 def _png_name(i, ctype, side, theme):
@@ -187,29 +291,14 @@ def _write_index(outdir, rows, themes=("light",)):
         f.write(doc)
 
 
-def preview(cards_path, themes=("light", "dark"), offline=False):
-    with open(cards_path, encoding="utf-8") as f:
-        data = json.load(f)
-    validate_schema(data)
-
-    base = os.path.basename(cards_path)
-    for suffix in (".cards.json", ".json"):
-        if base.lower().endswith(suffix):
-            base = base[: -len(suffix)]
-            break
-    # Preview next to the cards.json (e.g. decks/Biology/x.cards.json -> decks/Biology/preview/x/)
-    src_dir = os.path.dirname(cards_path) or "decks"
-    outdir = os.path.join(src_dir, "preview", base)
+def _render(items, outdir, themes, offline, width):
     os.makedirs(outdir, exist_ok=True)
-
-    items = _collect(data)
-    rows = []
     report = {"offline": offline, "math_renders": [], "mathjax_requests": []}
     with sync_playwright() as p:
         in_container = os.environ.get("ACF_PREVIEW_CONTAINER") == "1" or Path("/.dockerenv").exists()
         browser = p.chromium.launch(chromium_sandbox=not in_container)
         try:
-            context = browser.new_context(viewport={"width": 800, "height": 600}, device_scale_factor=2)
+            context = browser.new_context(viewport={"width": width, "height": 600}, device_scale_factor=2)
             blocked = []
             if offline:
                 def block_external(route):
@@ -218,14 +307,14 @@ def preview(cards_path, themes=("light", "dark"), offline=False):
                 context.route("**/*", block_external)
             page = context.new_page()
             failures = configure_mathjax(page, requests=report["mathjax_requests"])
-            for i, (ctype, label, front, back) in enumerate(items, 1):
-                for side, body in (("front", front), ("back", back)):
+            for i, item in enumerate(items, 1):
+                for side, body in (("front", item.front), ("back", item.back)):
                     body = body.replace('<details class="more">', '<details class="more" open>')
                     has_math = "\\(" in body or "\\[" in body
                     if has_math and not (mathjax_directory() / "tex-svg.js").is_file():
                         raise RuntimeError("Local MathJax is missing. Run forge.cmd setup or rebuild the preview image.")
                     for theme in themes:
-                        filename = _png_name(i, ctype, side, theme)
+                        filename = _png_name(i, item.ctype, side, theme)
                         page.set_content(_DOC.format(
                             css=build_deck._CSS, body=body,
                             mathjax=_MATHJAX if has_math else "", frame=_THEMES[theme]))
@@ -235,15 +324,45 @@ def preview(cards_path, themes=("light", "dark"), offline=False):
                         if blocked:
                             raise RuntimeError("Offline preview needs external resources: " + ", ".join(blocked))
                         page.locator(".card").screenshot(path=os.path.join(outdir, filename))
-                rows.append((i, ctype, label))
         finally:
             browser.close()
+    return report
 
+
+def _load_cards(cards_path):
+    with open(cards_path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def preview(cards_path, themes=("light", "dark"), offline=False):
+    items = _collect(_load_cards(cards_path))
+    base = os.path.basename(cards_path)
+    for suffix in (".cards.json", ".json"):
+        if base.lower().endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    # Preview next to the cards.json (e.g. decks/Biology/x.cards.json -> decks/Biology/preview/x/)
+    src_dir = os.path.dirname(cards_path) or "decks"
+    outdir = os.path.join(src_dir, "preview", base)
+    report = _render(items, outdir, themes, offline, width=800)
+    rows = [(i, item.ctype, item.index_label()) for i, item in enumerate(items, 1)]
     _write_index(outdir, rows, themes)
     Path(outdir, "render-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     n_png = len(items) * 2 * len(themes)
     print(f"OK: {len(items)} cards · themes: {'+'.join(themes)} -> {outdir}/  ({n_png} PNGs + index.html)")
     return outdir
+
+
+def preview_review(snapshot, outdir):
+    """Render a pinned source snapshot; the caller owns its private output directory."""
+    data = _load_cards(snapshot)
+    items = _collect(data)
+    if not items:
+        raise ValueError("The deck has no renderable cards to review.")
+    _render(items, outdir, (_REVIEW_THEME, "light"), offline=True, width=420)
+    cards = [item.review_entry(i, data["cards"][item.note - 1]) for i, item in enumerate(items, 1)]
+    Path(outdir, "cards.json").write_text(json.dumps(cards, ensure_ascii=False), encoding="utf-8")
+    return cards
 
 
 if __name__ == "__main__":
@@ -254,6 +373,10 @@ if __name__ == "__main__":
     ap.add_argument("--theme", choices=["light", "dark", "both"], default="both",
                     help="which theme(s) to render (default: both = light AND Anki night mode).")
     ap.add_argument("--offline", action="store_true", help="fail if the preview needs external resources")
+    ap.add_argument("--review-output", metavar="DIR", help=argparse.SUPPRESS)
     args = ap.parse_args()
-    themes = ("light", "dark") if args.theme == "both" else (args.theme,)
-    preview(args.cards, themes, offline=args.offline)
+    if args.review_output:
+        preview_review(args.cards, args.review_output)
+    else:
+        themes = ("light", "dark") if args.theme == "both" else (args.theme,)
+        preview(args.cards, themes, offline=args.offline)
